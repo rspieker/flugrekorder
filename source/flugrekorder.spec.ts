@@ -40,6 +40,25 @@ function makeStream() {
 
 // ─── Core proxy behaviour ─────────────────────────────────────────────────────
 
+test('traps with no origin mapping (e.g. has) emit a rekording with null origin', (t) => {
+	// arrange
+	const records: Rekording[] = [];
+	const p = create({ x: 1 }, { callback: (r) => records.push(r) });
+
+	// act
+	'x' in p;
+
+	// assert
+	const rec = records.find((r) => r.trap === 'has');
+	t.ok(rec, 'has record emitted');
+	t.equal(
+		rec?.origin,
+		null,
+		'origin is null for traps outside the origin mapping',
+	);
+	t.end();
+});
+
 test('primitives are returned unchanged through get', (t) => {
 	const p = create({ n: 42, s: 'hi', b: true }, { callback: () => {} });
 
