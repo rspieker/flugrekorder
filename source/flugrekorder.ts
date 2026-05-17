@@ -75,6 +75,11 @@ interface GNode {
 	readonly origin: Origin;
 }
 
+/**
+ * Session-scoped proxy registry.
+ * Each `create()` call produces its own Graph so proxied trees are
+ * independent and GC-eligible once no longer referenced.
+ */
 class Graph {
 	private byId = new Map<string, GNode>();
 	private byProxy = new WeakMap<Proxiable, GNode>();
@@ -187,6 +192,7 @@ function serialize(
 	return map(v, graph, seen);
 }
 
+/** Converts an Origin to its serialized form — coerces symbol keys to strings. */
 function serializeOrigin(o: Origin): SerializedOrigin {
 	if (!o) return null;
 	if ('key' in o)
@@ -196,6 +202,7 @@ function serializeOrigin(o: Origin): SerializedOrigin {
 
 // ─── Specs ────────────────────────────────────────────────────────────────────
 
+/** Per-trap hooks that transform arguments and results to maintain proxy transparency. */
 const specs: Partial<Record<string, Spec>> = {
 	get: {
 		post: (result, args, wrap) =>
@@ -256,6 +263,11 @@ const specs: Partial<Record<string, Spec>> = {
 
 // ─── Core proxy factory ───────────────────────────────────────────────────────
 
+/**
+ * Creates a recording proxy for `target` within `graph`.
+ * Reuses existing proxies for stability, handles Promises specially,
+ * and registers every new proxy in both the graph and the module-level index.
+ */
 function makeProxy<T extends Proxiable>(
 	target: T,
 	graph: Graph,
