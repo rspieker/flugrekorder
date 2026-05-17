@@ -129,6 +129,28 @@ test('proxy stability: the same underlying object always returns the same proxy'
 	t.end();
 });
 
+test('a known target passed as a call argument is proxied, so interactions on it are recorded', (t) => {
+	const records: Rekording[] = [];
+	const child = { x: 42 };
+	const target = {
+		child,
+		fn: (obj: typeof child) => obj.x,
+	};
+	const p = create(target, { callback: (r) => records.push(r) });
+
+	p.child; // registers child in the graph
+	const before = records.length;
+
+	p.fn(child); // passes raw target — wrapKnown should return its proxy
+
+	const xAccess = records
+		.slice(before)
+		.find((r) => r.trap === 'get' && r.origin !== null && 'key' in r.origin && r.origin.key === 'x');
+
+	t.ok(xAccess, 'get trap for x fires when known target is passed as argument');
+	t.end();
+});
+
 test('no recursion when a method mutates this', (t) => {
 	const records: Rekording[] = [];
 	const target = {

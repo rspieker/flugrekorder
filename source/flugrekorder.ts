@@ -319,8 +319,13 @@ function makeProxy<T extends Proxiable>(
 				};
 
 				// Only wraps values already in the graph — new plain data passes through.
-				const wrapKnown: WrapFn = (v) =>
-					isProxiable(v) && allProxies.has(v as Proxiable) ? v : v;
+				const wrapKnown: WrapFn = (v) => {
+					if (!isProxiable(v)) return v;
+					if (allProxies.has(v as Proxiable)) return v;
+					const existing = graph.getByTarget(v as Proxiable);
+					if (existing) return existing.proxy;
+					return v;
+				};
 
 				const spec = specs[trap] ?? {};
 				const args = spec.pre
