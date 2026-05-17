@@ -34,13 +34,34 @@ function makeStream() {
 			cb();
 		},
 	});
+
 	return { stream, lines };
 }
 
 // ─── Core proxy behaviour ─────────────────────────────────────────────────────
 
+test('traps with no origin mapping (e.g. has) emit a rekording with null origin', (t) => {
+	// arrange
+	const records: Rekording[] = [];
+	const p = create({ x: 1 }, { callback: (r) => records.push(r) });
+
+	// act
+	'x' in p;
+
+	// assert
+	const rec = records.find((r) => r.trap === 'has');
+	t.ok(rec, 'has record emitted');
+	t.equal(
+		rec?.origin,
+		null,
+		'origin is null for traps outside the origin mapping',
+	);
+	t.end();
+});
+
 test('primitives are returned unchanged through get', (t) => {
 	const p = create({ n: 42, s: 'hi', b: true }, { callback: () => {} });
+
 	t.equal(p.n, 42, 'number');
 	t.equal(p.s, 'hi', 'string');
 	t.equal(p.b, true, 'boolean');
@@ -48,10 +69,15 @@ test('primitives are returned unchanged through get', (t) => {
 });
 
 test('get trap emits one rekording per property access', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: 1, b: 2 }, { callback: (r) => records.push(r) });
+
+	// act
 	p.a;
 	p.b;
+
+	// assert
 	t.equal(
 		records.filter((r) => r.trap === 'get').length,
 		2,
@@ -61,10 +87,15 @@ test('get trap emits one rekording per property access', (t) => {
 });
 
 test('set trap emits a rekording and mutates the underlying value', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const target: { a: number } = { a: 1 };
 	const p = create(target, { callback: (r) => records.push(r) });
+
+	// act
 	p.a = 99;
+
+	// assert
 	const rec = records.find(
 		(r) =>
 			r.trap === 'set' &&
@@ -78,11 +109,14 @@ test('set trap emits a rekording and mutates the underlying value', (t) => {
 });
 
 test('apply trap emits a rekording and returns the correct value', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create(
 		{ double: (n: number) => n * 2 },
 		{ callback: (r) => records.push(r) },
 	);
+
+	// act + assert
 	t.equal(p.double(5), 10, 'return value is correct');
 	t.ok(
 		records.some((r) => r.trap === 'apply'),
@@ -92,12 +126,17 @@ test('apply trap emits a rekording and returns the correct value', (t) => {
 });
 
 test('construct trap emits a rekording and returns an instance', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	class Counter {
 		count = 0;
 	}
 	const p = create(Counter, { callback: (r) => records.push(r) });
+
+	// act
 	const instance = new p();
+
+	// assert
 	t.ok(
 		records.some((r) => r.trap === 'construct'),
 		'construct record emitted',
@@ -107,6 +146,7 @@ test('construct trap emits a rekording and returns an instance', (t) => {
 });
 
 test('returned proxiable values are themselves proxied', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create(
 		{ nested: { x: 1 } },
@@ -114,7 +154,11 @@ test('returned proxiable values are themselves proxied', (t) => {
 	);
 	const nested = p.nested;
 	const before = records.length;
+
+	// act
 	nested.x;
+
+	// assert
 	t.ok(
 		records.length > before,
 		'accessing a property on a returned nested proxy emits further records',
@@ -125,11 +169,45 @@ test('returned proxiable values are themselves proxied', (t) => {
 test('proxy stability: the same underlying object always returns the same proxy', (t) => {
 	const shared = { v: 1 };
 	const p = create({ a: shared, b: shared }, { callback: () => {} });
+
 	t.equal(p.a, p.b, 'both references return the identical proxy instance');
 	t.end();
 });
 
+test('a known target passed as a call argument is proxied, so interactions on it are recorded', (t) => {
+	// arrange
+	const records: Rekording[] = [];
+	const child = { x: 42 };
+	const target = {
+		child,
+		fn: (obj: typeof child) => obj.x,
+	};
+	const p = create(target, { callback: (r) => records.push(r) });
+	p.child; // registers child in the graph
+	const before = records.length;
+
+	// act
+	p.fn(child); // passes raw target — known() should return its proxy
+
+	// assert
+	const xAccess = records
+		.slice(before)
+		.find(
+			(r) =>
+				r.trap === 'get' &&
+				r.origin !== null &&
+				'key' in r.origin &&
+				r.origin.key === 'x',
+		);
+	t.ok(
+		xAccess,
+		'get trap for x fires when known target is passed as argument',
+	);
+	t.end();
+});
+
 test('no recursion when a method mutates this', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const target = {
 		c: 0,
@@ -138,6 +216,8 @@ test('no recursion when a method mutates this', (t) => {
 		},
 	};
 	const p = create(target, { callback: (r) => records.push(r) });
+
+	// act + assert
 	t.doesNotThrow(() => {
 		t.equal(p.inc(), 1, 'returns 1');
 		t.equal(target.c, 1, 'underlying counter incremented');
@@ -152,6 +232,7 @@ test('a known proxy passed back through a trap is not double-wrapped', (t) => {
 		},
 	};
 	const p = create(target, { callback: () => {} });
+
 	t.equal(p.getSelf(), p, 'getSelf() returns the same proxy instance');
 	t.end();
 });
@@ -159,6 +240,7 @@ test('a known proxy passed back through a trap is not double-wrapped', (t) => {
 test('arrays are proxied and elements remain accessible', (t) => {
 	const p = create({ arr: [10, 20, 30] }, { callback: () => {} });
 	const arr = p.arr;
+
 	t.equal(arr[0], 10, 'first element');
 	t.equal(arr[2], 30, 'last element');
 	t.equal(arr.length, 3, 'length');
@@ -172,6 +254,7 @@ test('prototype access is not wrapped and does not violate proxy invariants', (t
 		}
 	}
 	const p = create(new Foo(), { callback: () => {} });
+
 	t.doesNotThrow(() => p.bar(), 'calling a prototype method does not throw');
 	t.end();
 });
@@ -180,6 +263,7 @@ test('instanceof still works after proxying', (t) => {
 	class Foo {}
 	const original = new Foo();
 	const p = create(original, { callback: () => {} });
+
 	t.ok(p instanceof Foo, 'instanceof Foo is preserved on the proxy');
 	t.end();
 });
@@ -188,12 +272,14 @@ test('instanceof still works after proxying', (t) => {
 
 test('isFlugrekorder returns true for a proxy created by create()', (t) => {
 	const p = create({ x: 1 }, { callback: () => {} });
+
 	t.ok(isFlugrekorder(p), 'root proxy is recognised');
 	t.end();
 });
 
 test('isFlugrekorder returns true for a child proxy', (t) => {
 	const p = create({ a: { v: 1 } }, { callback: () => {} });
+
 	t.ok(isFlugrekorder(p.a), 'child proxy is recognised');
 	t.end();
 });
@@ -209,33 +295,46 @@ test('isFlugrekorder returns false for plain objects and primitives', (t) => {
 // ─── recursive option ────────────────────────────────────────────────────────
 
 test('recursive: true (default) proxies nested values', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: { b: 1 } }, { callback: (r) => records.push(r) });
 	const a = p.a;
 	const before = records.length;
+
+	// act
 	a.b;
+
+	// assert
 	t.ok(records.length > before, 'nested access emits additional records');
 	t.end();
 });
 
 test('recursive: false does not proxy values returned from traps', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create(
 		{ a: { b: 1 } },
 		{ callback: (r) => records.push(r), recursive: false },
 	);
+
+	// act + assert
 	const a = p.a;
 	t.notOk(isFlugrekorder(a), 'returned nested value is not a proxy');
 	t.end();
 });
 
 test('recursive: false still emits records for the root proxy', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create(
 		{ x: 1 },
 		{ callback: (r) => records.push(r), recursive: false },
 	);
+
+	// act
 	p.x;
+
+	// assert
 	t.ok(
 		records.some((r) => r.trap === 'get'),
 		'get record still emitted on root',
@@ -246,14 +345,19 @@ test('recursive: false still emits records for the root proxy', (t) => {
 // ─── only option ─────────────────────────────────────────────────────────────
 
 test('only: restricts which traps emit records', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const target: { a: number } = { a: 1 };
 	const p = create(target, {
 		callback: (r) => records.push(r),
 		only: ['get'],
 	});
+
+	// act
 	p.a;
 	p.a = 99;
+
+	// assert
 	t.ok(
 		records.every((r) => r.trap === 'get'),
 		'only get records emitted',
@@ -266,12 +370,17 @@ test('only: restricts which traps emit records', (t) => {
 });
 
 test('only: traps not in the list still execute correctly (pass-through)', (t) => {
+	// arrange
 	const target: { a: number } = { a: 1 };
 	const p = create(target, {
 		callback: () => {},
 		only: ['get'],
 	});
+
+	// act
 	p.a = 99;
+
+	// assert
 	t.equal(
 		target.a,
 		99,
@@ -281,12 +390,17 @@ test('only: traps not in the list still execute correctly (pass-through)', (t) =
 });
 
 test('only: apply and get can be combined', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create(
 		{ fn: () => 'hi' },
 		{ callback: (r) => records.push(r), only: ['get', 'apply'] },
 	);
+
+	// act
 	p.fn();
+
+	// assert
 	const traps = new Set(records.map((r) => r.trap));
 	t.ok(traps.has('get'), 'get recorded');
 	t.ok(traps.has('apply'), 'apply recorded');
@@ -297,9 +411,14 @@ test('only: apply and get can be combined', (t) => {
 // ─── Serialisation ────────────────────────────────────────────────────────────
 
 test('proxiable results are serialised as $proxy tags', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ obj: { v: 1 } }, { callback: (r) => records.push(r) });
+
+	// act
 	p.obj;
+
+	// assert
 	const rec = records.find(
 		(r) =>
 			r.trap === 'get' &&
@@ -318,9 +437,14 @@ test('proxiable results are serialised as $proxy tags', (t) => {
 });
 
 test('primitive results are inlined in the rekording', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ n: 7 }, { callback: (r) => records.push(r) });
+
+	// act
 	p.n;
+
+	// assert
 	const rec = records.find(
 		(r) =>
 			r.trap === 'get' &&
@@ -334,10 +458,14 @@ test('primitive results are inlined in the rekording', (t) => {
 });
 
 test('proxy IDs are consistent: result.$proxy matches origin.parent of child records', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: { b: 1 } }, { callback: (r) => records.push(r) });
+
+	// act
 	p.a.b;
 
+	// assert
 	const getA = records.find(
 		(r) =>
 			r.trap === 'get' &&
@@ -352,7 +480,6 @@ test('proxy IDs are consistent: result.$proxy matches origin.parent of child rec
 			'key' in r.origin &&
 			r.origin.key === 'b',
 	);
-
 	t.ok(getA && getB, 'both records found');
 	t.ok(isProxyTag(getA?.result), 'getA result is a $proxy tag');
 
@@ -366,10 +493,14 @@ test('proxy IDs are consistent: result.$proxy matches origin.parent of child rec
 });
 
 test('apply origin.source matches the $proxy ID of the accessed function', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ fn: () => 'ok' }, { callback: (r) => records.push(r) });
+
+	// act
 	p.fn();
 
+	// assert
 	const getFn = records.find(
 		(r) =>
 			r.trap === 'get' &&
@@ -378,7 +509,6 @@ test('apply origin.source matches the $proxy ID of the accessed function', (t) =
 			r.origin.key === 'fn',
 	);
 	const applyRec = records.find((r) => r.trap === 'apply');
-
 	t.ok(getFn && applyRec, 'get and apply records found');
 	t.ok(isProxyTag(getFn?.result), 'get result is $proxy-tagged');
 
@@ -396,11 +526,16 @@ test('apply origin.source matches the $proxy ID of the accessed function', (t) =
 });
 
 test('symbol property keys are serialised as strings in records', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const sym = Symbol('myKey');
 	const target = { [sym]: 'value' };
 	const p = create(target, { callback: (r) => records.push(r) });
+
+	// act
 	p[sym];
+
+	// assert
 	const rec = records.find(
 		(r) => r.trap === 'get' && r.origin !== null && 'key' in r.origin,
 	);
@@ -414,14 +549,26 @@ test('symbol property keys are serialised as strings in records', (t) => {
 });
 
 test('circular references in plain object arguments are serialised as { $proxy: "?" }', (t) => {
+	// arrange
 	const records: Rekording[] = [];
-	const p = create({ fn: (_v: unknown) => {} }, { callback: (r) => records.push(r) });
+	const p = create(
+		{ fn: (_v: unknown) => {} },
+		{ callback: (r) => records.push(r) },
+	);
 	const circular: Record<string, unknown> = {};
 	circular.self = circular;
+
+	// act
 	p.fn(circular);
+
+	// assert
 	const rec = records.find((r) => r.trap === 'apply');
 	const arg = (rec?.args?.[2] as Improbability)?.[0];
-	t.deepEqual(arg?.self, { $proxy: '?' }, 'circular back-reference serialised as { $proxy: "?" }');
+	t.deepEqual(
+		arg?.self,
+		{ $proxy: '?' },
+		'circular back-reference serialised as { $proxy: "?" }',
+	);
 	t.end();
 });
 
@@ -429,6 +576,7 @@ test('circular references in plain object arguments are serialised as { $proxy: 
 
 test('getOrigin returns null for the root proxy', (t) => {
 	const p = create({ x: 1 }, { callback: () => {} });
+
 	t.equal(getOrigin(p), null, 'root origin is null');
 	t.end();
 });
@@ -437,6 +585,7 @@ test('getOrigin returns a structured origin for a property-access proxy', (t) =>
 	const p = create({ a: { v: 1 } }, { callback: () => {} });
 	const a = p.a;
 	const origin = getOrigin(a);
+
 	t.ok(origin !== null, 'origin is not null');
 	t.equal(origin?.trap, 'get');
 	t.ok(origin && 'key' in origin, 'origin has a key field');
@@ -448,6 +597,7 @@ test('getOrigin for a function-return proxy has trap=apply and a source ID', (t)
 	const p = create({ fn: () => ({ v: 1 }) }, { callback: () => {} });
 	const result = p.fn();
 	const origin = getOrigin(result);
+
 	t.ok(origin !== null, 'origin is not null');
 	t.equal(origin?.trap, 'apply');
 	t.ok(origin && 'source' in origin, 'origin has a source field');
@@ -488,6 +638,7 @@ test('getAncestors returns an empty array for a non-proxy', (t) => {
 
 test('getPath returns a dotted property path', (t) => {
 	const p = create({ a: { b: { fn: () => 'x' } } }, { callback: () => {} });
+
 	t.equal(getPath(p.a.b.fn), 'a.b.fn');
 	t.end();
 });
@@ -497,12 +648,14 @@ test('getPath annotates a function-return value with ()', (t) => {
 		{ a: { b: { make: () => ({ v: 1 }) } } },
 		{ callback: () => {} },
 	);
+
 	t.equal(getPath(p.a.b.make()), 'a.b.make()');
 	t.end();
 });
 
 test('getPath for the root proxy is an empty string', (t) => {
 	const p = create({ x: 1 }, { callback: () => {} });
+
 	t.equal(getPath(p), '');
 	t.end();
 });
@@ -510,11 +663,15 @@ test('getPath for the root proxy is an empty string', (t) => {
 // ─── Stream sink ──────────────────────────────────────────────────────────────
 
 test('stream sink: writes valid NDJSON', (t) => {
+	// arrange
 	const { stream, lines } = makeStream();
 	const p = create({ x: 1, y: 2 }, { stream });
+
+	// act
 	p.x;
 	p.y;
 
+	// assert
 	t.ok(lines.length >= 2, `at least two lines written (got ${lines.length})`);
 	for (const line of lines) {
 		t.doesNotThrow(() => JSON.parse(line), 'line is valid JSON');
@@ -529,10 +686,14 @@ test('stream sink: writes valid NDJSON', (t) => {
 });
 
 test('stream sink: every record round-trips through JSON.stringify', (t) => {
+	// arrange
 	const { stream, lines } = makeStream();
 	const p = create({ a: { b: () => ({ v: 1 }) } }, { stream });
+
+	// act
 	p.a.b();
 
+	// assert
 	for (const line of lines) {
 		const rec = JSON.parse(line);
 		t.doesNotThrow(
@@ -544,11 +705,15 @@ test('stream sink: every record round-trips through JSON.stringify', (t) => {
 });
 
 test('stream sink: origins contain only string IDs (no live references)', (t) => {
+	// arrange
 	const { stream, lines } = makeStream();
 	const p = create({ a: { b: 1 }, fn: () => 'x' }, { stream });
+
+	// act
 	p.a.b;
 	p.fn();
 
+	// assert
 	for (const line of lines) {
 		const rec = JSON.parse(line);
 		if (rec.origin && 'parent' in rec.origin) {
@@ -573,9 +738,14 @@ test('stream sink: origins contain only string IDs (no live references)', (t) =>
 // ─── ID option ────────────────────────────────────────────────────────────────
 
 test('id: numeric starting value offsets the sequence', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ x: 1 }, { callback: (r) => records.push(r), id: 100 });
+
+	// act
 	p.x;
+
+	// assert
 	t.ok(records[0].id.startsWith('#'), 'ID has # prefix');
 	const n = parseInt(records[0].id.slice(1), 10);
 	t.ok(n > 100, 'ID is greater than the starting value');
@@ -583,13 +753,18 @@ test('id: numeric starting value offsets the sequence', (t) => {
 });
 
 test('id: custom generator function is used', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	let seq = 0;
 	const p = create(
 		{ x: 1 },
 		{ callback: (r) => records.push(r), id: () => `evt-${++seq}` },
 	);
+
+	// act
 	p.x;
+
+	// assert
 	t.ok(records[0].id.startsWith('evt-'), 'custom ID format used');
 	t.end();
 });
@@ -597,14 +772,17 @@ test('id: custom generator function is used', (t) => {
 // ─── defineProperty / getOwnPropertyDescriptor with accessor descriptors ─────
 
 test('defineProperty: getter defined via accessor descriptor is proxied and its calls are recorded', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const target: Record<string, unknown> = {};
 	const p = create(target, { callback: (r) => records.push(r) });
-
 	const innerObj = { value: 42 };
 	Object.defineProperty(p, 'x', { get: () => innerObj, configurable: true });
 
+	// act
 	const result = (p as Improbability).x;
+
+	// assert
 	t.ok(isFlugrekorder(result), 'getter return value is proxied');
 	t.ok(
 		records.some((r) => r.trap === 'apply'),
@@ -614,11 +792,11 @@ test('defineProperty: getter defined via accessor descriptor is proxied and its 
 });
 
 test('defineProperty: setter defined via accessor descriptor is proxied, incoming value is tracked', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	let received: unknown;
 	const target: Record<string, unknown> = {};
 	const p = create(target, { callback: (r) => records.push(r) });
-
 	Object.defineProperty(p, 'x', {
 		set: (v) => {
 			received = v;
@@ -626,8 +804,11 @@ test('defineProperty: setter defined via accessor descriptor is proxied, incomin
 		configurable: true,
 	});
 	const incoming = { val: 1 };
+
+	// act
 	(p as Improbability).x = incoming;
 
+	// assert
 	t.ok(
 		isFlugrekorder(received as object),
 		'value received by setter is proxied',
@@ -636,6 +817,7 @@ test('defineProperty: setter defined via accessor descriptor is proxied, incomin
 });
 
 test('getOwnPropertyDescriptor: accessor descriptor get/set are proxied in the returned descriptor', (t) => {
+	// arrange
 	const target: Record<string, unknown> = {};
 	Object.defineProperty(target, 'x', {
 		get: () => 99,
@@ -644,6 +826,7 @@ test('getOwnPropertyDescriptor: accessor descriptor get/set are proxied in the r
 	});
 	const p = create(target, { callback: () => {} });
 
+	// act + assert
 	// biome-ignore lint/style/noNonNullAssertion: descriptor and its accessors must exist — silent undefined would mask a real failure
 	const desc = Object.getOwnPropertyDescriptor(p, 'x')!;
 	// biome-ignore lint/style/noNonNullAssertion: same — asserting get/set are present is the point of the test
@@ -654,11 +837,15 @@ test('getOwnPropertyDescriptor: accessor descriptor get/set are proxied in the r
 });
 
 test('defineProperty with only flag changes (no value/get/set) passes the descriptor through unchanged', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const target = { x: 1 };
 	const p = create(target, { callback: (r) => records.push(r) });
 
+	// act
 	Object.defineProperty(p, 'x', { configurable: true, writable: true });
+
+	// assert
 	t.ok(
 		records.some((r) => r.trap === 'defineProperty'),
 		'defineProperty record still emitted',
@@ -671,9 +858,9 @@ test('defineProperty with only flag changes (no value/get/set) passes the descri
 	t.end();
 });
 
-
 test('getOwnPropertyDescriptor returns undefined for a non-existent property', (t) => {
 	const p = create({ x: 1 }, { callback: () => {} });
+
 	t.equal(
 		Object.getOwnPropertyDescriptor(p, 'nonExistent'),
 		undefined,
@@ -684,6 +871,7 @@ test('getOwnPropertyDescriptor returns undefined for a non-existent property', (
 
 test('getOwnPropertyDescriptor on a property with value undefined returns the descriptor unchanged', (t) => {
 	const p = create({ x: undefined as unknown }, { callback: () => {} });
+
 	// biome-ignore lint/style/noNonNullAssertion: descriptor must exist — silent undefined would mask a real failure
 	const desc = Object.getOwnPropertyDescriptor(p, 'x')!;
 	t.equal(desc.value, undefined, 'value is undefined');
@@ -695,10 +883,13 @@ test('getOwnPropertyDescriptor on a property with value undefined returns the de
 });
 
 test('create() called with an already-proxied target returns it unchanged', (t) => {
+	// arrange
 	const original = { x: 1 };
 	const p1 = create(original, { callback: () => {} });
 	const records: Rekording[] = [];
 	const p2 = create(p1, { callback: (r) => records.push(r) });
+
+	// assert
 	t.equal(p2, p1, 'returns the existing proxy, not a new wrapper');
 	t.end();
 });
@@ -706,11 +897,16 @@ test('create() called with an already-proxied target returns it unchanged', (t) 
 // ─── Promise handling ─────────────────────────────────────────────────────────
 
 test('async function: resolved value is proxied', async (t) => {
+	// arrange
 	const p = create(
 		{ fetch: async () => ({ id: 1 }) },
 		{ callback: () => {} },
 	);
+
+	// act
 	const result = await p.fetch();
+
+	// assert
 	t.ok(isFlugrekorder(result), 'resolved value is a proxy');
 	t.equal(
 		(result as Improbability).id,
@@ -723,16 +919,22 @@ test('async function: resolved value is proxied', async (t) => {
 test('async function: resolved primitive is returned as-is', async (t) => {
 	const p = create({ getCount: async () => 42 }, { callback: () => {} });
 	const result = await p.getCount();
+
 	t.equal(result, 42, 'primitive resolved value is returned unchanged');
 	t.end();
 });
 
 test('Promise property: awaiting a proxied Promise resolves correctly', async (t) => {
+	// arrange
 	const p = create(
 		{ data: Promise.resolve({ name: 'alice' }) },
 		{ callback: () => {} },
 	);
+
+	// act
 	const result = await p.data;
+
+	// assert
 	t.ok(
 		isFlugrekorder(result),
 		'resolved value of a Promise property is proxied',
@@ -742,12 +944,17 @@ test('Promise property: awaiting a proxied Promise resolves correctly', async (t
 });
 
 test('Promise stability: the same Promise always resolves to the same proxy', async (t) => {
+	// arrange
 	const inner = { v: 1 };
 	const p = create(
 		{ a: Promise.resolve(inner), b: Promise.resolve(inner) },
 		{ callback: () => {} },
 	);
+
+	// act
 	const [a, b] = await Promise.all([p.a, p.b]);
+
+	// assert
 	t.equal(a, b, 'same resolved object yields the same proxy');
 	t.end();
 });
@@ -757,6 +964,7 @@ test('Promise stability: the same Promise always resolves to the same proxy', as
 test('getTarget returns the original unwrapped object', (t) => {
 	const target = { x: 1 };
 	const p = create(target, { callback: () => {} });
+
 	t.equal(getTarget(p), target, 'returns the original target');
 	t.end();
 });
@@ -769,9 +977,14 @@ test('getTarget returns null for a non-proxy', (t) => {
 // ─── getProxyById ─────────────────────────────────────────────────────────────
 
 test('getProxyById retrieves a proxy by its recorded ID', (t) => {
+	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: { v: 1 } }, { callback: (r) => records.push(r) });
+
+	// act
 	p.a;
+
+	// assert
 	const rec = records.find((r) => r.trap === 'get');
 	const id = (rec?.result as { $proxy: string })?.$proxy;
 	t.ok(id, 'a $proxy ID was recorded');
@@ -783,7 +996,12 @@ test('getProxyById retrieves a proxy by its recorded ID', (t) => {
 
 test('getProxyById returns undefined for an unknown ID', (t) => {
 	const p = create({ x: 1 }, { callback: () => {} });
-	t.equal(getProxyById('no-such-id', p), undefined, 'unknown ID returns undefined');
+
+	t.equal(
+		getProxyById('no-such-id', p),
+		undefined,
+		'unknown ID returns undefined',
+	);
 	t.end();
 });
 
@@ -792,6 +1010,7 @@ test('getProxyById returns undefined for an unknown ID', (t) => {
 test('getPath on a directly-called root function produces ()', (t) => {
 	const fn = create(() => ({ v: 1 }), { callback: () => {} });
 	const result = fn();
+
 	t.equal(
 		getPath(result),
 		'()',
