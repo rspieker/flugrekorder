@@ -1,1 +1,1 @@
-npm test
+NO_COLOR=1 npm test
