@@ -2,9 +2,11 @@ import type { Writable } from 'node:stream';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
 
+/** Any value that can be wrapped in a Proxy — objects and functions. */
 // biome-ignore lint/complexity/noBannedTypes: Function is intentional — Proxiable must accept any callable
 export type Proxiable = object | Function;
 
+/** Describes how a proxy was created — which trap fired, on which parent, and under which key or source. Null for root proxies. */
 export type Origin =
 	| {
 			trap: 'get' | 'set' | 'defineProperty' | 'getOwnPropertyDescriptor';
@@ -26,6 +28,7 @@ type SerializedOrigin =
 	| { trap: 'apply' | 'construct'; source: string }
 	| null;
 
+/** A JSON-safe representation of any value. Proxiable values are replaced with `{ $proxy: id }` tags. */
 export type Serialized =
 	| string
 	| number
@@ -37,6 +40,7 @@ export type Serialized =
 	| Array<Serialized>
 	| { [key: string]: Serialized };
 
+/** A single recorded interaction — one Reflect trap firing on one proxy. */
 export type Rekording = {
 	id: string;
 	trap: string;
@@ -370,6 +374,10 @@ type CreateOptions = {
 	| { callback: (record: Rekording) => void; stream?: never }
 );
 
+/**
+ * Wraps `target` in a transparent recording proxy.
+ * Every Reflect trap that fires emits a `Rekording` to `callback` or `stream`.
+ */
 export function create<T extends Proxiable>(
 	target: T,
 	options: CreateOptions,
@@ -385,14 +393,20 @@ export function create<T extends Proxiable>(
 	return makeProxy(target, graph, { write, recursive, only }, null);
 }
 
+/** Returns `true` if `value` is a proxy created by this module. */
 export function isFlugrekorder(value: unknown): value is Proxiable {
 	return isProxiable(value) && allProxies.has(value as Proxiable);
 }
 
+/** Returns the original unwrapped target of a proxy, or `null` for non-proxies. */
 export function getTarget(pxy: Proxiable): Proxiable | null {
 	return graphOf.get(pxy)?.getByProxy(pxy)?.target ?? null;
 }
 
+/**
+ * Looks up a proxy by its recorded ID within the same graph as `pxy`.
+ * Use this to resolve `{ $proxy: id }` references in recorded args and results back to live proxies.
+ */
 export function getProxyById(
 	id: string,
 	pxy: Proxiable,
@@ -400,10 +414,16 @@ export function getProxyById(
 	return graphOf.get(pxy)?.getById(id)?.proxy;
 }
 
+/** Returns the `Origin` of a proxy — how and from where it was created. Returns `null` for root proxies and non-proxies. */
 export function getOrigin(pxy: Proxiable): Origin {
 	return graphOf.get(pxy)?.getByProxy(pxy)?.origin ?? null;
 }
 
+/**
+ * Walks the origin chain from the root proxy down to `pxy`.
+ * Returns an ordered array of `{ proxy, origin }` pairs, root first.
+ * Returns an empty array for non-proxies.
+ */
 export function getAncestors(
 	pxy: Proxiable,
 ): Array<{ proxy: Proxiable; origin: Origin }> {
@@ -422,6 +442,11 @@ export function getAncestors(
 	return result;
 }
 
+/**
+ * Returns a human-readable dotted path string for a proxy.
+ * Function and constructor calls are annotated with `()`.
+ * Returns an empty string for the root proxy and for non-proxies.
+ */
 export function getPath(pxy: Proxiable): string {
 	const ancestors = getAncestors(pxy);
 	const parts: Array<string> = [];
