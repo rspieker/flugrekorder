@@ -46,11 +46,11 @@ Format: `type(optional scope): description`
 - `ci` vs `chore`: if it's in `.github/workflows/`, use `ci`
 - `fix` vs `refactor`: did it correct wrong behaviour? `fix`. Did it restructure correct behaviour? `refactor`
 
-## Using Fork.app with husky
+## Using Git UI's with husky
 
-[Fork](https://git-fork.com) respects husky commit hooks, but does not source your shell environment by design. If your hooks fail silently or with a `command not found` error, Fork can't find `node` or `npx` because your version manager (nvm, asdf, etc.) isn't loaded.
+Many Git UI's (such as [Fork](https://git-fork.com)) respect husky commit hooks, but does not source your shell environment by design. If your hooks fail silently or with a `command not found` error, it can't find `node` or `npx` because your version manager (nvm, asdf, etc.) isn't loaded.
 
-Fix: add a `~/.huskyrc` file that sources your version manager before the hook runs.
+Fix: add a `~/.config/husky/init.sh` file that sources your version manager before the hook runs.
 
 For **asdf**:
 ```sh
@@ -59,7 +59,10 @@ For **asdf**:
 
 For **nvm**:
 ```sh
-. "$HOME/.nvm/nvm.sh"
+export NVM_DIR="$HOME/.nvm"
+[ -s "$NVM_DIR/nvm.sh" ] && . "$NVM_DIR/nvm.sh"
 ```
+
+Note: `~/.huskyrc` still works but is deprecated as of husky v9 — use `~/.config/husky/init.sh` instead.
 
 If hooks still don't run as expected, CLI commits are always a reliable fallback — and CI validates commit messages regardless.
