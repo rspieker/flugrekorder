@@ -1,0 +1,20 @@
+{
+	"compilerOptions": {
+		"target": "ES2020",
+		"module": "ESNext",
+		"moduleResolution": "bundler",
+		"lib": ["ES2020"],
+		"types": ["node"],
+		"strict": true,
+		"noImplicitAny": false,
+		"skipLibCheck": true,
+		"esModuleInterop": true,
+		"forceConsistentCasingInFileNames": true,
+		"declaration": true,
+		"declarationMap": true,
+		"sourceMap": true,
+		"ignoreDeprecations": "6.0"
+	},
+	"include": ["source/**/*.ts"],
+	"exclude": ["node_modules", "dist", "source/**/*.spec.ts"]
+}
