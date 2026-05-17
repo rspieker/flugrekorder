@@ -49,31 +49,35 @@ export type Rekording = {
 	result: Serialized;
 };
 
+/** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
 type Config = {
 	write: (r: Rekording) => void;
 	recursive: boolean;
 	only: Set<string> | null;
 };
 
-type WrapFn = (v: unknown) => unknown;
+/** A function that conditionally wraps a value in a proxy. */
+type Wrapper = (v: unknown) => unknown;
 
+/** Pre/post hooks for a Reflect trap — transform args before dispatch and/or wrap the result. */
 type Spec = {
 	pre?: (
 		args: Array<unknown>,
-		wrap: WrapFn,
-		wrapKnown: WrapFn,
+		wrap: Wrapper,
+		known: Wrapper,
 	) => Array<unknown>;
-	post?: (result: unknown, args: Array<unknown>, wrap: WrapFn) => unknown;
+	post?: (result: unknown, args: Array<unknown>, wrap: Wrapper) => unknown;
 };
 
 // ─── Graph ────────────────────────────────────────────────────────────────────
 
-interface GNode {
+/** A node in the proxy graph — links a proxy to its original target, its origin, and its ID. */
+type GraphNode = {
 	readonly id: string;
 	readonly proxy: Proxiable;
 	readonly target: Proxiable;
 	readonly origin: Origin;
-}
+};
 
 /**
  * Session-scoped proxy registry.
@@ -81,29 +85,29 @@ interface GNode {
  * independent and GC-eligible once no longer referenced.
  */
 class Graph {
-	private byId = new Map<string, GNode>();
-	private byProxy = new WeakMap<Proxiable, GNode>();
-	private byTarget = new WeakMap<Proxiable, GNode>();
-	private n: number;
-	private genId: () => string;
+	#byId = new Map<string, GraphNode>();
+	#byProxy = new WeakMap<Proxiable, GraphNode>();
+	#byTarget = new WeakMap<Proxiable, GraphNode>();
+	#generator: () => string;
 
 	constructor(id: number | (() => string)) {
-		this.n = typeof id === 'number' ? id : 0;
-		this.genId = typeof id === 'function' ? id : () => `#${++this.n}`;
+		let counter = typeof id === 'number' ? id : 0;
+
+		this.#generator = typeof id === 'function' ? id : () => `#${++counter}`;
 	}
 
 	nextId(): string {
-		return this.genId();
+		return this.#generator();
 	}
 
-	getByProxy(v: Proxiable): GNode | undefined {
-		return this.byProxy.get(v);
+	getByProxy(v: Proxiable): GraphNode | undefined {
+		return this.#byProxy.get(v);
 	}
-	getByTarget(v: Proxiable): GNode | undefined {
-		return this.byTarget.get(v);
+	getByTarget(v: Proxiable): GraphNode | undefined {
+		return this.#byTarget.get(v);
 	}
-	getById(id: string): GNode | undefined {
-		return this.byId.get(id);
+	getById(id: string): GraphNode | undefined {
+		return this.#byId.get(id);
 	}
 
 	register(
@@ -111,11 +115,13 @@ class Graph {
 		target: Proxiable,
 		origin: Origin,
 		id: string,
-	): GNode {
-		const node: GNode = { id, proxy, target, origin };
-		this.byId.set(id, node);
-		this.byProxy.set(proxy, node);
-		this.byTarget.set(target, node);
+	): GraphNode {
+		const node: GraphNode = { id, proxy, target, origin };
+
+		this.#byId.set(id, node);
+		this.#byProxy.set(proxy, node);
+		this.#byTarget.set(target, node);
+
 		return node;
 	}
 }
@@ -130,8 +136,13 @@ const allProxies = new WeakSet<Proxiable>();
 
 // ─── Utility ──────────────────────────────────────────────────────────────────
 
-const isProxiable = (v: unknown): v is Proxiable =>
-	v !== null && (typeof v === 'object' || typeof v === 'function');
+/** Returns true for any value that can meaningfully be wrapped in a Proxy. */
+function isProxiable(value: unknown): value is Proxiable {
+	return (
+		value !== null &&
+		(typeof value === 'object' || typeof value === 'function')
+	);
+}
 
 /** Maps a typeof pattern to a serialization handler. */
 type Mapping = {
@@ -197,6 +208,7 @@ function serializeOrigin(o: Origin): SerializedOrigin {
 	if (!o) return null;
 	if ('key' in o)
 		return { trap: o.trap, parent: o.parent, key: String(o.key) };
+
 	return o;
 }
 
@@ -205,55 +217,68 @@ function serializeOrigin(o: Origin): SerializedOrigin {
 /** Per-trap hooks that transform arguments and results to maintain proxy transparency. */
 const specs: Partial<Record<string, Spec>> = {
 	get: {
-		post: (result, args, wrap) =>
-			args[1] === 'prototype' ? result : wrap(result),
+		post: (result, [, key], wrap) =>
+			key === 'prototype' ? result : wrap(result),
 	},
 	set: {
-		pre: (args, wrap) => [args[0], args[1], wrap(args[2]), args[3]],
+		pre: ([target, key, value, receiver], wrap) => [
+			target,
+			key,
+			wrap(value),
+			receiver,
+		],
 	},
 	apply: {
 		// thisArg is wrapped normally (it's always a graph node).
-		// Call arguments are wrapped with wrapKnown — only existing graph nodes
+		// Call arguments are wrapped with known — only existing graph nodes
 		// get proxied; plain data passes through and is inlined by serialize().
-		pre: (args, wrap, wrapKnown) => [
-			args[0],
-			wrap(args[1]),
-			(args[2] as Array<unknown>).map(wrapKnown),
+		pre: ([target, thisArg, callArgs], wrap, known) => [
+			target,
+			wrap(thisArg),
+			(<Array<unknown>>callArgs).map(known),
 		],
 		post: (result, _args, wrap) => wrap(result),
 	},
 	construct: {
-		pre: (args, wrap) => [
-			args[0],
-			(args[1] as Array<unknown>).map(wrap),
-			args[2],
+		pre: ([target, callArgs, newTarget], wrap) => [
+			target,
+			(<Array<unknown>>callArgs).map(wrap),
+			newTarget,
 		],
 		post: (result, _args, wrap) => wrap(result),
 	},
 	defineProperty: {
 		pre: (args, wrap) => {
-			const desc = args[2] as PropertyDescriptor;
+			const [target, key, descriptor] = <
+				[unknown, unknown, PropertyDescriptor]
+			>args;
 			const patch: PropertyDescriptor = {};
-			if (desc.value != null) patch.value = wrap(desc.value);
-			if (typeof desc.get === 'function')
-				patch.get = wrap(desc.get) as () => unknown;
-			if (typeof desc.set === 'function')
-				patch.set = wrap(desc.set) as (v: unknown) => void;
+
+			if (descriptor.value != null) patch.value = wrap(descriptor.value);
+			if (typeof descriptor.get === 'function')
+				patch.get = <() => unknown>wrap(descriptor.get);
+			if (typeof descriptor.set === 'function')
+				patch.set = <(v: unknown) => void>wrap(descriptor.set);
+
 			return Object.keys(patch).length > 0
-				? [args[0], args[1], { ...desc, ...patch }]
+				? [target, key, { ...descriptor, ...patch }]
 				: args;
 		},
 	},
 	getOwnPropertyDescriptor: {
 		post: (result, _args, wrap) => {
-			const desc = result as PropertyDescriptor | undefined;
+			const desc = <PropertyDescriptor | undefined>result;
+
 			if (!desc) return result;
+
 			const patch: PropertyDescriptor = {};
+
 			if (desc.value != null) patch.value = wrap(desc.value);
 			if (typeof desc.get === 'function')
-				patch.get = wrap(desc.get) as () => unknown;
+				patch.get = <() => unknown>wrap(desc.get);
 			if (typeof desc.set === 'function')
-				patch.set = wrap(desc.set) as (v: unknown) => void;
+				patch.set = <(v: unknown) => void>wrap(desc.set);
+
 			return Object.keys(patch).length > 0
 				? { ...desc, ...patch }
 				: result;
@@ -275,30 +300,32 @@ function makeProxy<T extends Proxiable>(
 	origin: Origin,
 ): T {
 	// Already a proxy (in any graph) — return unchanged, preventing double-wrapping.
-	if (allProxies.has(target as Proxiable)) return target;
+	if (allProxies.has(<Proxiable>target)) return target;
 
 	// Already have a proxy for this original — reuse it (stability guarantee).
-	const existing = graph.getByTarget(target as Proxiable);
-	if (existing) return existing.proxy as T;
+	const existing = graph.getByTarget(<Proxiable>target);
+
+	if (existing) return <T>existing.proxy;
 
 	// Promises cannot be proxied directly: native methods like .then() check for
 	// the [[PromiseState]] internal slot and throw if `this` is a Proxy. Instead,
 	// return a new Promise that resolves to a proxy of the settled value.
 	if (target instanceof Promise) {
-		const chained = target.then((value) =>
-			isProxiable(value)
-				? makeProxy(value as Proxiable, graph, config, origin)
-				: value,
-		) as unknown as T;
+		const chained = <T>(
+			(<unknown>(
+				target.then((value) =>
+					isProxiable(value)
+						? makeProxy(<Proxiable>value, graph, config, origin)
+						: value,
+				)
+			))
+		);
 		// Register with a placeholder node so stability lookups work.
 		const id = graph.nextId();
-		graph.register(
-			chained as unknown as Proxiable,
-			target as Proxiable,
-			origin,
-			id,
-		);
-		graphOf.set(chained as unknown as Proxiable, graph);
+
+		graph.register(<Proxiable>chained, <Proxiable>target, origin, id);
+		graphOf.set(<Proxiable>chained, graph);
+
 		return chained;
 	}
 
@@ -306,9 +333,9 @@ function makeProxy<T extends Proxiable>(
 
 	let pxy!: T;
 
-	const traps = (
-		Object.getOwnPropertyNames(Reflect) as Array<keyof typeof Reflect>
-	).filter((trap) => config.only === null || config.only.has(trap));
+	const traps = (<Array<keyof typeof Reflect>>(
+		Object.getOwnPropertyNames(Reflect)
+	)).filter((trap) => config.only === null || config.only.has(trap));
 
 	const handler: ProxyHandler<Proxiable> = Object.fromEntries(
 		traps.map((trap) => [
@@ -336,20 +363,23 @@ function makeProxy<T extends Proxiable>(
 				};
 
 				// Only wraps values already in the graph — new plain data passes through.
-				const wrapKnown: WrapFn = (v) => {
+				const known: Wrapper = (v) => {
 					if (!isProxiable(v)) return v;
-					if (allProxies.has(v as Proxiable)) return v;
-					const existing = graph.getByTarget(v as Proxiable);
+					if (allProxies.has(<Proxiable>v)) return v;
+
+					const existing = graph.getByTarget(<Proxiable>v);
+
 					if (existing) return existing.proxy;
+
 					return v;
 				};
 
 				const spec = specs[trap] ?? {};
 				const args = spec.pre
-					? spec.pre(rawArgs, wrap, wrapKnown)
+					? spec.pre(rawArgs, wrap, known)
 					: rawArgs;
 				// biome-ignore lint/complexity/noBannedTypes: dynamic Reflect dispatch requires Function cast
-				const result = (Reflect[trap] as Function)(...args);
+				const result = (<Function>Reflect[trap])(...args);
 				const output = spec.post
 					? spec.post(result, args, wrap)
 					: result;
@@ -367,11 +397,11 @@ function makeProxy<T extends Proxiable>(
 		]),
 	);
 
-	pxy = new Proxy(target as Proxiable, handler) as unknown as T;
+	pxy = <T>(<unknown>new Proxy(<Proxiable>target, handler));
 
-	graph.register(pxy as Proxiable, target as Proxiable, origin, proxyId);
-	graphOf.set(pxy as Proxiable, graph);
-	allProxies.add(pxy as Proxiable);
+	graph.register(<Proxiable>pxy, <Proxiable>target, origin, proxyId);
+	graphOf.set(<Proxiable>pxy, graph);
+	allProxies.add(<Proxiable>pxy);
 
 	return pxy;
 }
@@ -395,10 +425,11 @@ export function create<T extends Proxiable>(
 	target: T,
 	options: CreateOptions,
 ): T {
-	const write: (r: Rekording) => void = options.stream
-		? (r) => options.stream?.write(`${JSON.stringify(r)}\n`)
+	const { stream, callback } = options;
+	const write: (r: Rekording) => void = stream
+		? (r) => stream.write(`${JSON.stringify(r)}\n`)
 		: // biome-ignore lint/style/noNonNullAssertion: CreateOptions guarantees stream or callback is set — TypeScript cannot express this mutual exclusion
-			options.callback!;
+			callback!;
 	const recursive = options.recursive !== false;
 	const only = options.only ? new Set(options.only) : null;
 	const graph = new Graph(options.id ?? 0);
@@ -408,7 +439,7 @@ export function create<T extends Proxiable>(
 
 /** Returns `true` if `value` is a proxy created by this module. */
 export function isFlugrekorder(value: unknown): value is Proxiable {
-	return isProxiable(value) && allProxies.has(value as Proxiable);
+	return isProxiable(value) && allProxies.has(<Proxiable>value);
 }
 
 /** Returns the original unwrapped target of a proxy, or `null` for non-proxies. */
@@ -441,17 +472,22 @@ export function getAncestors(
 	pxy: Proxiable,
 ): Array<{ proxy: Proxiable; origin: Origin }> {
 	const graph = graphOf.get(pxy);
+
 	if (!graph) return [];
 
 	const result: Array<{ proxy: Proxiable; origin: Origin }> = [];
 	let node = graph.getByProxy(pxy);
+
 	while (node) {
 		result.unshift({ proxy: node.proxy, origin: node.origin });
 		if (!node.origin) break;
+
 		const parentId =
 			'parent' in node.origin ? node.origin.parent : node.origin.source;
+
 		node = graph.getById(parentId);
 	}
+
 	return result;
 }
 
@@ -463,6 +499,7 @@ export function getAncestors(
 export function getPath(pxy: Proxiable): string {
 	const ancestors = getAncestors(pxy);
 	const parts: Array<string> = [];
+
 	for (const { origin: o } of ancestors) {
 		if (!o) continue;
 		if ('key' in o) {
@@ -475,5 +512,6 @@ export function getPath(pxy: Proxiable): string {
 			}
 		}
 	}
+
 	return parts.join('.');
 }
