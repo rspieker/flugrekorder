@@ -32,7 +32,7 @@ jobs:
           git config user.name "github-actions[bot]"
 
       - name: Beta release (main)
-        if: github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')
+        if: "github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')"
         run: |
           npm run release:beta
           npm publish --provenance --tag beta
@@ -40,7 +40,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Sync develop after beta release
-        if: github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')
+        if: "github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')"
         run: git push origin HEAD:develop 2>/dev/null || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
