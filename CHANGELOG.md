@@ -1,5 +1,13 @@
 # Changelog
 
+## [1.0.0-beta.7](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.6...v1.0.0-beta.7) (2026-05-18)
+
+### Bug Fixes
+
+* automatic fast-forwards or release -> main -> develop ([9ecb940](https://github.com/rspieker/flugrekorder/commit/9ecb940d201d0688f67142b7b97dea4cef1b0193))
+* correct release.yml syntax ([5b2fa23](https://github.com/rspieker/flugrekorder/commit/5b2fa2326aefd25b0e8183f2375a8efdcf93b0e9))
+* streamline action runners ([5f12ef6](https://github.com/rspieker/flugrekorder/commit/5f12ef6bfb94602ca5b229e44fd43b4d33cf12bd))
+
 ## [1.0.0-beta.6](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.5...v1.0.0-beta.6) (2026-05-18)
 
 ## [1.0.0-beta.5](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.4...v1.0.0-beta.5) (2026-05-18)
