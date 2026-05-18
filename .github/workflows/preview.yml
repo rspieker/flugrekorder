@@ -33,7 +33,7 @@ jobs:
           else
             ARGS="--preRelease=beta --dry-run --ci"
           fi
-          NEXT=$(npx release-it $ARGS 2>&1 | head -5 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.-]*' | tail -1)
+          NEXT=$(npx release-it $ARGS 2>/dev/null | grep "Let's release" | grep -oE '\.\.\.[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.-]*' | tail -1 | cut -d. -f4-)
           echo "next=$NEXT" >> $GITHUB_OUTPUT
 
       - name: Find existing comment
