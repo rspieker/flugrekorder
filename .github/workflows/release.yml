@@ -39,6 +39,12 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
+      - name: Sync develop after beta release
+        if: github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')
+        run: git push origin HEAD:develop 2>/dev/null || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Stable release (release branch)
         if: github.ref_name == 'release'
         run: |
