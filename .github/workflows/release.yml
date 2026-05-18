@@ -47,3 +47,7 @@ jobs:
           npm publish --provenance
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Debug npm log
+        if: failure()
+        run: cat /home/runner/.npm/_logs/*.log
