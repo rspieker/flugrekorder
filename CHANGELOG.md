@@ -1,5 +1,7 @@
 # Changelog
 
+## [1.0.0-beta.6](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.5...v1.0.0-beta.6) (2026-05-18)
+
 ## [1.0.0-beta.5](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.4...v1.0.0-beta.5) (2026-05-18)
 
 ## [1.0.0-beta.4](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.3...v1.0.0-beta.4) (2026-05-18)
