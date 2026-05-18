@@ -32,10 +32,16 @@ jobs:
           git config user.name "github-actions[bot]"
 
       - name: Beta release (main)
-        if: github.ref_name == 'main'
+        if: github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')
         run: |
           npm run release:beta
           npm publish --provenance --tag beta
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Sync develop after beta release
+        if: github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')
+        run: git push origin HEAD:develop 2>/dev/null || true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
@@ -47,6 +53,10 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Debug npm log
-        if: failure()
-        run: cat /home/runner/.npm/_logs/*.log
+      - name: Sync main and develop after stable release
+        if: github.ref_name == 'release'
+        run: |
+          git push origin HEAD:main
+          git push origin HEAD:develop 2>/dev/null || true
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
