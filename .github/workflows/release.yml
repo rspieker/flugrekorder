@@ -30,12 +30,16 @@ jobs:
 
       - name: Beta release (main)
         if: github.ref_name == 'main'
-        run: npm run release:beta
+        run: |
+          npm run release:beta
+          npm publish --provenance --tag beta
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Stable release (release branch)
         if: github.ref_name == 'release'
-        run: npm run release
+        run: |
+          npm run release
+          npm publish --provenance
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

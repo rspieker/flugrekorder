@@ -11,9 +11,8 @@
 		"tokenRef": "GITHUB_TOKEN"
 	},
 	"npm": {
-		"publish": true,
-		"skipChecks": true,
-		"publishArgs": ["--provenance"]
+		"publish": false,
+		"skipChecks": true
 	},
 	"plugins": {
 		"@release-it/conventional-changelog": {
