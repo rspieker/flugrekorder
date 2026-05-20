@@ -102,3 +102,37 @@ Never touched: [ 'auth', 'debug', 'legacyMode' ]
 ```
 
 Fields in "never touched" can be removed without consequence — or, if the new library version claims to use them, that's a signal the upgrade changes behaviour.
+
+---
+
+## 04 — HTTP interaction recorder
+
+**File:** [`04-https-request-interaction.ts`](04-https-request-interaction.ts)
+
+**The problem:** you want to know exactly which requests your code makes and what sequence of calls it performs on the resulting objects — without a mock server, without patching globals, without setup.
+
+**The trick:** wrap the `https` module before passing it to your code. Every method call on the request object is recorded in order. The real network request runs untouched — you just get a transcript of what happened.
+
+```ts
+const client = create(https, {
+  only: ['get', 'apply'],
+  callback(r) {
+    if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
+    const fn = getProxyById(r.origin.source, client);
+    if (!fn) return;
+    calls.push(`${getPath(fn)}(...)`);
+  },
+});
+```
+
+Note: flugrekorder records *everything*, including Node.js internals. The example filters to public API calls at depth ≤ 2 to keep the output readable — remove the filter to see the full picture.
+
+**Output:**
+```
+Calls recorded:
+  request("https://www.rammstein.de/en/history/reisereisealbum/")
+  request().on("response", {})
+  request().end()
+
+HTTP 200 — 7085 bytes
+```
