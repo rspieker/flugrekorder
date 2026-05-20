@@ -105,7 +105,7 @@ Fields in "never touched" can be removed without consequence — or, if the new 
 
 ---
 
-## 04 — HTTP interaction recorder
+## 04 — HTTPS request interaction recorder
 
 **File:** [`04-https-request-interaction.ts`](04-https-request-interaction.ts)
 
@@ -135,4 +135,36 @@ Calls recorded:
   request().end()
 
 HTTP 200 — 7085 bytes
+```
+
+---
+
+## 05 — Fetch interaction recorder
+
+**File:** [`05-fetch-interaction.ts`](05-fetch-interaction.ts)
+
+**The problem:** you want to know exactly which URLs your code fetches — without a mock server, without patching globals, without setup. The URL used here also explains where the name "flugrekorder" comes from.
+
+**The trick:** wrap the `fetch` function itself with `create`. Use `recursive: false` to keep recording at the call level; the `Response` is left unproxied so `ok`, `status`, `text()` and all body methods work exactly as normal.
+
+```ts
+const recordedFetch = create(fetch, {
+  only: ['apply'],
+  recursive: false,
+  callback(r) {
+    if (r.trap !== 'apply') return;
+    const args = (r.args[2] as unknown[])
+      .filter(a => typeof a !== 'function')
+      .map(a => JSON.stringify(a)).join(', ');
+    calls.push(`fetch(${args})`);
+  },
+});
+```
+
+**Output:**
+```
+Calls recorded:
+  fetch("https://www.rammstein.de/en/history/reisereisealbum/")
+
+Page loaded: 7061 characters
 ```
