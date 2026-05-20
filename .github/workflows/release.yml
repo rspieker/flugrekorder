@@ -31,10 +31,27 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
+      - name: Calculate bump type from last stable release
+        id: bump
+        if: "github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')"
+        run: |
+          LAST_STABLE=$(git tag --sort=-v:refname \
+            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
+            | head -1)
+          echo "Last stable tag: ${LAST_STABLE}"
+          COMMITS=$(git log "${LAST_STABLE}..HEAD" --pretty=format:"%s%n%b")
+          if echo "${COMMITS}" | grep -qE "BREAKING[- ]CHANGE|^[a-z]+(\(.+\))?!:"; then
+            echo "increment=major" >> "$GITHUB_OUTPUT"
+          elif echo "${COMMITS}" | grep -qE "^feat(\(.+\))?:"; then
+            echo "increment=minor" >> "$GITHUB_OUTPUT"
+          else
+            echo "increment=patch" >> "$GITHUB_OUTPUT"
+          fi
+
       - name: Beta release (main)
         if: "github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')"
         run: |
-          npm run release:beta
+          npm run release:beta -- --increment=${{ steps.bump.outputs.increment }}
           npm publish --provenance --tag beta
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
