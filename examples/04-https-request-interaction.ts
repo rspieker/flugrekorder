@@ -63,8 +63,8 @@ loadPage(client, 'https://www.rammstein.de/en/history/reisereisealbum/', (status
 	console.log('Calls recorded:');
 	calls.forEach((entry) => console.log(' ', entry));
 	// request("https://www.rammstein.de/en/history/reisereisealbum/")
-	// on("response")
-	// end()
+	// request().on("response", {})
+	// request().end()
 
 	console.log(`\nHTTP ${status} — ${size} bytes`);
 });
