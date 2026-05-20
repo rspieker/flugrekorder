@@ -35,10 +35,11 @@ jobs:
             | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
             | head -1)
           echo "Last stable tag: ${LAST_STABLE}"
-          COMMITS=$(git log "${LAST_STABLE}..HEAD" --pretty=format:"%s%n%b")
-          if echo "${COMMITS}" | grep -qE "BREAKING[- ]CHANGE|^[a-z]+(\(.+\))?!:"; then
+          echo "Commits since ${LAST_STABLE}:"
+          git log "${LAST_STABLE}..HEAD" --format="%s" | head -20
+          if git log "${LAST_STABLE}..HEAD" --format="%s%n%b" | grep -qE "BREAKING[- ]CHANGE|^[a-z]+(\(.+\))?!:"; then
             echo "increment=major" >> "$GITHUB_OUTPUT"
-          elif echo "${COMMITS}" | grep -qE "^feat(\(.+\))?:"; then
+          elif git log "${LAST_STABLE}..HEAD" --format="%s" | grep -qE "^feat(\(.+\))?:"; then
             echo "increment=minor" >> "$GITHUB_OUTPUT"
           else
             echo "increment=patch" >> "$GITHUB_OUTPUT"
