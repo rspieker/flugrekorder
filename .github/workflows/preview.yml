@@ -67,18 +67,12 @@ jobs:
           echo "next=${NEXT_BASE}-beta.${BETA_NUM}" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
-      - name: Determine next version
-        id: version
+      - name: Determine next version (release branch only)
+        id: release_version
+        if: github.base_ref == 'release'
         run: |
-          if [ "${{ github.base_ref }}" = "release" ]; then
-            ARGS="--dry-run --ci"
-          else
-            ARGS="--preRelease=beta --dry-run --ci --release-version=${{ steps.bump.outputs.next }}"
-          fi
-          OUTPUT=$(npx release-it $ARGS 2>&1 || true)
+          OUTPUT=$(npx release-it --dry-run --ci 2>&1 || true)
           echo "$OUTPUT"
-          NEXT=$(echo "$OUTPUT" | grep "Let's release" | grep -oE '\.\.\.[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.-]*' | tail -1 | tr -d '.')
-          # safer extraction
           NEXT=$(echo "$OUTPUT" | grep "Let's release" | sed -nE "s/.*\.\.\.(v?[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.-]*)\).*/\1/p")
           echo "next=${NEXT}" >> $GITHUB_OUTPUT
 
@@ -95,5 +89,5 @@ jobs:
         with:
           comment-id: ${{ steps.find-comment.outputs.comment-id }}
           issue-number: ${{ github.event.pull_request.number }}
-          body: "📦 Merging this PR will release **v${{ steps.version.outputs.next }}**"
+          body: "📦 Merging this PR will release **v${{ github.base_ref == 'release' && steps.release_version.outputs.next || steps.bump.outputs.next }}**"
           edit-mode: replace
