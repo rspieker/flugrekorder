@@ -32,45 +32,10 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git config user.name "github-actions[bot]"
 
-      - name: Calculate next beta version
-        id: bump
-        if: "github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')"
-        run: |
-          LAST_STABLE=$(git tag --sort=-v:refname \
-            | grep -E '^v[0-9]+\.[0-9]+\.[0-9]+$' \
-            | head -1)
-          echo "Last stable tag: ${LAST_STABLE}"
-          if git log "${LAST_STABLE}..HEAD" --format="%s%n%b" | grep -qE "BREAKING[- ]CHANGE|^[a-z]+(\(.+\))?!:"; then
-            INCREMENT=major
-          elif git log "${LAST_STABLE}..HEAD" --format="%s" | grep -qE "^[[:space:]]*feat(\(.+\))?:"; then
-            INCREMENT=minor
-          else
-            INCREMENT=patch
-          fi
-          echo "increment=${INCREMENT}"
-
-          STABLE_VERSION=${LAST_STABLE#v}
-          IFS='.' read -r MAJOR MINOR PATCH <<< "$STABLE_VERSION"
-          if [ "$INCREMENT" = "major" ]; then
-            NEXT_BASE="$((MAJOR+1)).0.0"
-          elif [ "$INCREMENT" = "minor" ]; then
-            NEXT_BASE="${MAJOR}.$((MINOR+1)).0"
-          else
-            NEXT_BASE="${MAJOR}.${MINOR}.$((PATCH+1))"
-          fi
-
-          BETA_NUM=0
-          while git tag | grep -qF "v${NEXT_BASE}-beta.${BETA_NUM}"; do
-            BETA_NUM=$((BETA_NUM + 1))
-          done
-
-          echo "next=${NEXT_BASE}-beta.${BETA_NUM}" >> "$GITHUB_OUTPUT"
-          cat "$GITHUB_OUTPUT"
-
       - name: Beta release (main)
         if: "github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')"
         run: |
-          npx release-it --ci --release-version=${{ steps.bump.outputs.next }}
+          npx release-it --preRelease=beta --ci
           npm publish --provenance --tag beta
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
