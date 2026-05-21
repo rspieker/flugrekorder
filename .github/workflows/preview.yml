@@ -18,7 +18,7 @@ jobs:
         with:
           fetch-depth: 0
           fetch-tags: true
-          ref: ${{ github.base_ref }}
+          ref: ${{ github.event.pull_request.head.sha }}
 
       - uses: actions/setup-node@v4
         with:
