@@ -27,7 +27,7 @@ jobs:
 
       - run: npm ci
 
-      - name: Calculate bump type from last stable release
+      - name: Calculate next version
         id: bump
         if: github.base_ref != 'release'
         run: |
@@ -37,13 +37,34 @@ jobs:
           echo "Last stable tag: ${LAST_STABLE}"
           echo "Commits since ${LAST_STABLE}:"
           git log "${LAST_STABLE}..HEAD" --format="%s" | head -20
+
           if git log "${LAST_STABLE}..HEAD" --format="%s%n%b" | grep -qE "BREAKING[- ]CHANGE|^[a-z]+(\(.+\))?!:"; then
-            echo "increment=major" >> "$GITHUB_OUTPUT"
+            INCREMENT=major
           elif git log "${LAST_STABLE}..HEAD" --format="%s" | grep -qE "^[[:space:]]*feat(\(.+\))?:"; then
-            echo "increment=minor" >> "$GITHUB_OUTPUT"
+            INCREMENT=minor
           else
-            echo "increment=patch" >> "$GITHUB_OUTPUT"
+            INCREMENT=patch
           fi
+          echo "increment=${INCREMENT}"
+
+          # Compute next stable base from last stable tag
+          STABLE_VERSION=${LAST_STABLE#v}
+          IFS='.' read -r MAJOR MINOR PATCH <<< "$STABLE_VERSION"
+          if [ "$INCREMENT" = "major" ]; then
+            NEXT_BASE="$((MAJOR+1)).0.0"
+          elif [ "$INCREMENT" = "minor" ]; then
+            NEXT_BASE="${MAJOR}.$((MINOR+1)).0"
+          else
+            NEXT_BASE="${MAJOR}.${MINOR}.$((PATCH+1))"
+          fi
+
+          # Find the next available beta number for that base
+          BETA_NUM=0
+          while git tag | grep -qF "v${NEXT_BASE}-beta.${BETA_NUM}"; do
+            BETA_NUM=$((BETA_NUM + 1))
+          done
+
+          echo "next=${NEXT_BASE}-beta.${BETA_NUM}" >> "$GITHUB_OUTPUT"
           cat "$GITHUB_OUTPUT"
 
       - name: Determine next version
@@ -52,12 +73,14 @@ jobs:
           if [ "${{ github.base_ref }}" = "release" ]; then
             ARGS="--dry-run --ci"
           else
-            ARGS="--preRelease=beta --dry-run --ci --increment=${{ steps.bump.outputs.increment }}"
+            ARGS="--preRelease=beta --dry-run --ci --release-version=${{ steps.bump.outputs.next }}"
           fi
           OUTPUT=$(npx release-it $ARGS 2>&1 || true)
           echo "$OUTPUT"
-          NEXT=$(echo "$OUTPUT" | grep "Let's release" | grep -oE '\.\.\.[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.-]*' | tail -1 | cut -d. -f4-)
-          echo "next=$NEXT" >> $GITHUB_OUTPUT
+          NEXT=$(echo "$OUTPUT" | grep "Let's release" | grep -oE '\.\.\.[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.-]*' | tail -1 | tr -d '.')
+          # safer extraction
+          NEXT=$(echo "$OUTPUT" | grep "Let's release" | sed -nE "s/.*\.\.\.(v?[0-9]+\.[0-9]+\.[0-9]+[a-zA-Z0-9.-]*)\).*/\1/p")
+          echo "next=${NEXT}" >> $GITHUB_OUTPUT
 
       - name: Find existing comment
         uses: peter-evans/find-comment@v3
