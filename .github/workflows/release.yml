@@ -70,7 +70,7 @@ jobs:
       - name: Beta release (main)
         if: "github.ref_name == 'main' && !startsWith(github.event.head_commit.message, 'chore: release')"
         run: |
-          npx release-it --preRelease=beta --ci --release-version=${{ steps.bump.outputs.next }}
+          npx release-it --ci --release-version=${{ steps.bump.outputs.next }}
           npm publish --provenance --tag beta
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
