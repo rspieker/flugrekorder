@@ -1,5 +1,19 @@
 # Changelog
 
+## [1.1.0-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.0.2-beta.1...v1.1.0-beta.0) (2026-05-22)
+
+### Features
+
+* restored simpler release/preview flow ([bbc91af](https://github.com/rspieker/flugrekorder/commit/bbc91af0d28dd39d360f71f9ed78dacd17e7d8b6))
+
+## [1.0.2-beta.1](https://github.com/rspieker/flugrekorder/compare/v1.0.2-beta.0...v1.0.2-beta.1) (2026-05-20)
+
+### Bug Fixes
+
+* add tests for function that fail due to transitioning into native implementations that are required to throw ([aa6b367](https://github.com/rspieker/flugrekorder/commit/aa6b367a00da12b02b5b701966b08ba135821ec9))
+
+## [1.0.2-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.0.1...v1.0.2-beta.0) (2026-05-20)
+
 ## [1.0.1](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.7...v1.0.1) (2026-05-18)
 
 ## [1.0.0](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.7...v1.0.1) (2026-05-18)

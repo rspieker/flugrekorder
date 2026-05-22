@@ -1,6 +1,6 @@
 {
   "name": "flugrekorder",
-  "version": "1.0.1",
+  "version": "1.1.0-beta.0",
   "publishConfig": {
     "access": "public"
   },
@@ -34,7 +34,6 @@
     "check": "biome check source",
     "check:write": "biome check --write source",
     "release": "release-it --ci",
-    "release:beta": "release-it --preRelease=beta --ci",
     "prepublishOnly": "npm run build",
     "test": "run-script-os",
     "test:nix": "ts-node --project tsconfig.test.json node_modules/tape/bin/tape 'source/**/*.spec.ts' | tap-arc",

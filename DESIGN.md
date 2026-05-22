@@ -68,6 +68,7 @@ Simplified origin to `string | symbol | null`, smaller memory footprint, inline 
 | Origin extraction via spec pre/post hooks | Keeps trap handler generic; per-trap concerns stay in one place |
 | `only` filter | Covers real use cases with minimal API surface (replaces 3-mode system) |
 | Proxy stability guarantee | Same object → same proxy, regardless of how many times it is accessed |
+| Native slot detection + bind cache | Allows `Map`, `Set`, `WeakMap`, `WeakSet`, `Date` to be proxied and recorded; probe runs once per prototype, bind cache maintains stability for method results |
 | No double-wrapping guard | Prevents infinite loops when proxied values are passed back into proxied functions |
 
 ## What was abandoned and why
@@ -89,5 +90,7 @@ Simplified origin to `string | symbol | null`, smaller memory footprint, inline 
 **Graph class** — Session-scoped registries (`byId`, `byProxy`, `byTarget`) per `create()` call, making each proxied tree GC-eligible and self-contained. Earlier approaches used module-level maps, causing memory leaks under repeated use.
 
 **Promise special case** — Native Promise methods check for the `[[PromiseState]]` internal slot and throw if `this` is a Proxy. flugrekorder returns a new Promise that proxies the settled value instead, maintaining the stability guarantee across async boundaries.
+
+**Native internal slot detection** — ECMAScript built-ins such as `Map`, `Set`, `WeakMap`, `WeakSet`, and `Date` store state in internal slots that a Proxy cannot carry. Accessing their properties or calling their methods with `this` as a Proxy throws `TypeError`. flugrekorder probes each object's prototype chain once (cached per prototype, result discarded safely via a write-suppressing blank Proxy) to detect this boundary. For detected types, the `get` trap swaps the receiver to the real target (fixing getter-based checks like `Map.prototype.size`) and binds method results to the real target before wrapping (fixing apply-level checks like `Map.prototype.get`). A stable bind cache ensures the same bound function proxy is returned on every access, preserving the proxy stability guarantee.
 
 **`wrapKnown` vs `wrap`** — Dual-mode wrapping prevents unbounded proxy creation when plain data is passed to proxied functions. `wrap` creates new proxies freely (for results); `wrapKnown` only wraps values already in the graph (for call arguments).
