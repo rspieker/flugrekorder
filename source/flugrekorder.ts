@@ -47,6 +47,7 @@ export type Rekording = {
 	origin: SerializedOrigin;
 	args: Array<Serialized>;
 	result: Serialized;
+	timestamp: number;
 };
 
 /** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
@@ -477,6 +478,7 @@ function makeProxy<T extends Proxiable>(
 					origin: serializeOrigin(childOrigin),
 					args: args.map((arg) => serialize(arg, graph)),
 					result: serialize(output, graph),
+					timestamp: Date.now(),
 				});
 
 				return output;

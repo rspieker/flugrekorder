@@ -207,6 +207,7 @@ type Rekording = {
   } | null;         // null for the root proxy
   args: Serialized[];   // trap arguments
   result: Serialized;   // return value
+  timestamp: number;    // Date.now() at the moment the trap fired
 };
 ```
 
@@ -370,5 +371,6 @@ export type Rekording = {
   origin: { trap: string; parent?: string; key?: string; source?: string } | null;
   args: Serialized[];
   result: Serialized;
+  timestamp: number;
 };
 ```

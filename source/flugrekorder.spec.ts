@@ -1229,3 +1229,52 @@ test("WeakSet: add/has/delete of an object are recorded", (t) => {
 
 	t.end();
 });
+
+// ─── Timestamp ────────────────────────────────────────────────────────────────
+
+test("every rekording has a numeric timestamp", (t) => {
+	// arrange
+	const records: Rekording[] = [];
+	const p = create({ x: 1 }, { callback: (r) => records.push(r) });
+
+	// act
+	p.x;
+
+	// assert
+	t.equal(typeof records[0].timestamp, "number", "timestamp is a number");
+	t.end();
+});
+
+test("timestamps are monotonically non-decreasing across sequential traps", (t) => {
+	// arrange
+	const records: Rekording[] = [];
+	const p = create({ a: 1, b: 2, c: 3 }, { callback: (r) => records.push(r) });
+
+	// act
+	p.a;
+	p.b;
+	p.c;
+
+	// assert
+	for (let i = 1; i < records.length; i++) {
+		t.ok(
+			records[i].timestamp >= records[i - 1].timestamp,
+			`record ${i} timestamp >= record ${i - 1} timestamp`,
+		);
+	}
+	t.end();
+});
+
+test("stream sink: timestamp is present and numeric in NDJSON output", (t) => {
+	// arrange
+	const { stream, lines } = makeStream();
+	const p = create({ x: 1 }, { stream });
+
+	// act
+	p.x;
+
+	// assert
+	const rec = JSON.parse(lines[0]);
+	t.equal(typeof rec.timestamp, "number", "timestamp is a number in NDJSON");
+	t.end();
+});
