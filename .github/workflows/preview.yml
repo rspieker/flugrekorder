@@ -31,9 +31,9 @@ jobs:
         id: next
         run: |
           if [ "${{ github.base_ref }}" = "release" ]; then
-            NEXT=$(npx release-it --ci --dry-run --release-version 2>/dev/null)
+            NEXT=$(npx release-it --ci --dry-run --release-version )
           else
-            NEXT=$(npx release-it --preRelease=beta --ci --dry-run --release-version 2>/dev/null)
+            NEXT=$(npx release-it --preRelease=beta --ci --dry-run --release-version )
           fi
           echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
         env:
