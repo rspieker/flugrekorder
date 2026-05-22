@@ -4,6 +4,7 @@
 [![CI](https://github.com/rspieker/flugrekorder/actions/workflows/tests.yml/badge.svg)](https://github.com/rspieker/flugrekorder/actions/workflows/tests.yml)
 [![license](https://img.shields.io/npm/l/flugrekorder)](LICENSE)
 
+> Following a hunch but not sure if you need a microscope, a periscope, or a telescope? Zoom in, peek around, look beyond — all at once.
 > A tireless, impartial, punctilious, incurious spectator. It witnesses every interaction. It takes note. It understands nothing. Remarkably, this is a feature.
 
 Wraps any object, function, or array in a transparent `Proxy` and emits a structured `Rekording` for every Reflect trap that fires — get, set, apply, construct, and all others.
