@@ -5,12 +5,22 @@
 [![license](https://img.shields.io/npm/l/flugrekorder)](LICENSE)
 
 > Following a hunch but not sure if you need a microscope, a periscope, or a telescope? Zoom in, peek around, look beyond — all at once.
+
 > A tireless, impartial, punctilious, incurious spectator. It witnesses every interaction. It takes note. It understands nothing. Remarkably, this is a feature.
 
 Wraps any object, function, or array in a transparent `Proxy` and emits a structured `Rekording` for every Reflect trap that fires — get, set, apply, construct, and all others.
 
 Design principle: **record structure, relay behaviour, understand nothing.**
 The recorder has no knowledge of what it wraps. If a dependency adds new methods, they are recorded automatically.
+
+---
+
+## When to use this
+
+- A side effect came knocking. Where did it come from? Was it invited? When? By whom?
+- Here, we observe the code in its digital habitat. Undisturbed. Unmodified. Doing — what?
+- The scriptures tell one story. The scribes tell another.
+- You want a record. Not a theory, not a phantom — a record.
 
 ---
 
