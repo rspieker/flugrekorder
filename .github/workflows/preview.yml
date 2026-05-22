@@ -36,6 +36,8 @@ jobs:
             NEXT=$(npx release-it --preRelease=beta --ci --dry-run --release-version 2>/dev/null)
           fi
           echo "version=${NEXT}" >> "$GITHUB_OUTPUT"
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Find existing comment
         uses: peter-evans/find-comment@v3
