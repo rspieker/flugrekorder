@@ -1,6 +1,6 @@
 {
   "name": "flugrekorder",
-  "version": "1.0.2-beta.1",
+  "version": "1.1.0-beta.0",
   "publishConfig": {
     "access": "public"
   },
