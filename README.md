@@ -24,6 +24,15 @@ The recorder has no knowledge of what it wraps. If a dependency adds new methods
 
 ---
 
+## Why not…
+
+- **`console.log`** — you have to know where to put it first.
+- **Mocks and spies** — they replace the real thing; you're no longer observing, you're performing.
+- **Monkey-patching** — one property at a time, brittle, and you'll miss what you didn't think to patch.
+- **A debugger** — interactive, ephemeral, and gone the moment you step past it.
+
+---
+
 ## Installation
 
 ```sh
