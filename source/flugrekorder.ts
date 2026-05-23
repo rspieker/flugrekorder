@@ -13,6 +13,7 @@ import type {
 } from './types';
 import { isProxiable } from './types';
 
+export { format } from './format';
 export {
 	getAncestors,
 	getOrigin,
