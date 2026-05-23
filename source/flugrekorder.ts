@@ -1,35 +1,38 @@
-import type { Writable } from 'node:stream';
-import type { GraphNode } from './graph';
-import { Graph } from './graph';
-import { serialize, serializeOrigin } from './serialize';
-import type { Wrapper } from './specs';
-import { specs } from './specs';
+import type { Writable } from "node:stream";
+import type { GraphNode } from "./graph";
+import { Graph } from "./graph";
+import type { SerialConfig } from "./serialize";
+import { serialize, origin as serializeOrigin } from "./serialize";
+import type { Wrapper } from "./specs";
+import { specs } from "./specs";
 import type {
 	CallTrap,
 	Origin,
 	PropertyTrap,
 	Proxiable,
+	Redactor,
 	Rekording,
-} from './types';
-import { isProxiable } from './types';
+} from "./types";
+import { isProxiable } from "./types";
 
-export { format } from './format';
+export { format } from "./format";
 export {
 	getAncestors,
 	getOrigin,
 	getPath,
 	getProxyById,
 	getTarget,
-} from './inspection';
+} from "./inspection";
 export type {
 	CallTrap,
 	Origin,
 	PropertyTrap,
 	Proxiable,
+	Redactor,
 	Rekording,
 	Serialized,
-} from './types';
-export { isProxiable } from './types';
+} from "./types";
+export { isProxiable } from "./types";
 
 /** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
 type Config = {
@@ -37,6 +40,7 @@ type Config = {
 	recursive: boolean;
 	only: Set<string> | null;
 	filter: ((r: Rekording) => boolean) | null;
+	serial: SerialConfig;
 };
 
 type CreateOptions = {
@@ -44,6 +48,9 @@ type CreateOptions = {
 	recursive?: boolean;
 	only?: string[];
 	filter?: (rekording: Rekording) => boolean;
+	maxDepth?: number;
+	redact?: Redactor | Redactor[];
+	truncate?: number;
 } & (
 	| { stream: Writable; callback?: never }
 	| { callback: (record: Rekording) => void; stream?: never }
@@ -148,8 +155,10 @@ function makeProxy<T extends Proxiable>(
 					id: graph.nextId(),
 					trap,
 					origin: serializeOrigin(childOrigin),
-					args: args.map((arg) => serialize(arg, graph)),
-					result: serialize(output, graph),
+					args: args.map((arg) =>
+						serialize(arg, graph, new Set(), config.serial),
+					),
+					result: serialize(output, graph, new Set(), config.serial),
 					timestamp: Date.now(),
 				};
 				if (!config.filter || config.filter(rekording))
@@ -184,9 +193,20 @@ export function create<T extends Proxiable>(
 	const recursive = options.recursive !== false;
 	const only = options.only ? new Set(options.only) : null;
 	const filter = options.filter ?? null;
+	const { redact } = options;
+	const serial: SerialConfig = {
+		maxDepth: options.maxDepth ?? Infinity,
+		redactors: redact ? (Array.isArray(redact) ? redact : [redact]) : [],
+		truncate: options.truncate ?? Infinity,
+	};
 	const graph = new Graph(options.id ?? 0);
 
-	return makeProxy(target, graph, { write, recursive, only, filter }, null);
+	return makeProxy(
+		target,
+		graph,
+		{ write, recursive, only, filter, serial },
+		null,
+	);
 }
 
 /** Returns `true` if `value` is a proxy created by this module. */

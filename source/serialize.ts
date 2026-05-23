@@ -1,17 +1,49 @@
-import type { Graph } from './graph';
-import type { Origin, Proxiable, Serialized, SerializedOrigin } from './types';
+import type { Graph } from "./graph";
+import {
+	isProxiable,
+	type Origin,
+	type Proxiable,
+	type Redactor,
+	type Serialized,
+	type SerializedOrigin,
+} from "./types";
 
-/** Maps a typeof pattern to a serialization handler. */
-type Mapping = {
-	match: RegExp;
-	map: (v: unknown, graph: Graph, seen: Set<unknown>) => Serialized;
+export type SerialConfig = {
+	maxDepth: number;
+	redactors: Redactor[];
+	truncate: number;
 };
 
+export const defaults: SerialConfig = {
+	maxDepth: Infinity,
+	redactors: [],
+	truncate: Infinity,
+};
+
+/** Find and apply any redaction for the given key/value/target context */
+function redact(
+	redactors: Array<Redactor>,
+	key: string | symbol,
+	value: unknown,
+	target: object,
+): string | null | false {
+	for (const redactor of redactors) {
+		const result = redactor(key, value, target);
+		if (result === false) continue;
+
+		return result === true ? "[redacted]" : result;
+	}
+
+	return false;
+}
+
 /** Serializes an object or function value — tags known proxies by ID, inlines arrays and plain objects. */
-function serializeProxiable(
+function proxiable(
 	v: unknown,
 	graph: Graph,
 	seen: Set<unknown>,
+	serial: SerialConfig,
+	depth: number,
 ): Serialized {
 	// Check for a known proxy BEFORE Array.isArray: iterating a proxied
 	// array via its proxy triggers get traps which call serialize again,
@@ -20,50 +52,62 @@ function serializeProxiable(
 		graph.getByProxy(<Proxiable>v) ?? graph.getByTarget(<Proxiable>v);
 
 	if (node !== undefined) return { $proxy: node.id };
+	if (depth >= serial.maxDepth) return "[…]";
+
 	// Plain (unproxied) arrays are safe to iterate directly.
-	if (Array.isArray(v))
-		return (<Array<unknown>>v).map((item) => serialize(item, graph, seen));
+	if (Array.isArray(v)) {
+		return (<Array<unknown>>v).map((item) =>
+			serialize(item, graph, seen, serial, depth + 1),
+		);
+	}
+
 	// Plain (unproxied) objects: serialize by value with a circular-reference guard.
-	if (seen.has(v)) return { $proxy: '?' };
+	if (seen.has(v)) return { $proxy: "?" };
 
 	seen.add(v);
 
-	const result = Object.fromEntries(
-		Object.entries(<object>v).map(([k, val]) => [
-			k,
-			serialize(val, graph, seen),
-		]),
-	);
+	const entries: Array<[string, Serialized]> = [];
+
+	for (const [k, val] of Object.entries(<object>v)) {
+		if (serial.redactors.length > 0) {
+			const decision = redact(serial.redactors, k, val, <object>v);
+			if (decision === null) continue;
+			if (decision !== false) {
+				entries.push([k, decision]);
+				continue;
+			}
+		}
+
+		entries.push([k, serialize(val, graph, seen, serial, depth + 1)]);
+	}
 
 	seen.delete(v);
 
-	return result;
+	return Object.fromEntries(entries);
 }
-
-/** Ordered serialization handlers — first match wins; unmatched values fall through to String(). */
-const mappings: Array<Mapping> = [
-	{ match: /number|boolean|bigint/, map: (v) => <Serialized>v },
-	{ match: /object|function/, map: serializeProxiable },
-];
 
 /** Converts any value to a JSON-safe Serialized form, tagging graph members by ID. */
 export function serialize(
 	v: unknown,
 	graph: Graph,
 	seen = new Set<unknown>(),
+	serial = defaults,
+	depth = 0,
 ): Serialized {
 	if (v === null || v === undefined) return v;
+	if (isProxiable(v)) return proxiable(v, graph, seen, serial, depth);
 
-	const { map = String } =
-		mappings.find(({ match }) => match.test(typeof v)) ?? {};
-
-	return map(v, graph, seen);
+	return typeof v === "string"
+		? (<string>v).length > serial.truncate
+			? `${(<string>v).slice(0, serial.truncate)}…`
+			: <string>v
+		: <Serialized>v;
 }
 
 /** Converts an Origin to its serialized form — coerces symbol keys to strings. */
-export function serializeOrigin(o: Origin): SerializedOrigin {
+export function origin(o: Origin): SerializedOrigin {
 	if (!o) return null;
-	if ('key' in o)
+	if ("key" in o)
 		return { trap: o.trap, parent: o.parent, key: String(o.key) };
 
 	return o;

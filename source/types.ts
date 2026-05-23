@@ -43,6 +43,17 @@ export function isProxiable(value: unknown): value is Proxiable {
 	);
 }
 
+/**
+ * Determines whether and how a key/value pair should be redacted during serialization.
+ * Return `false` to keep as-is, `true` to replace with `"[redacted]"`,
+ * a string to use as a custom replacement, or `null` to drop the key entirely.
+ */
+export type Redactor = (
+	key: string | symbol,
+	value: unknown,
+	target: object,
+) => string | boolean | null;
+
 /** A single recorded interaction — one Reflect trap firing on one proxy. */
 export type Rekording = {
 	id: string;

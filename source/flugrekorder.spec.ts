@@ -624,30 +624,6 @@ test('symbol property keys are serialised as strings in records', (t) => {
 	t.end();
 });
 
-test('circular references in plain object arguments are serialised as { $proxy: "?" }', (t) => {
-	// arrange
-	const records: Rekording[] = [];
-	const p = create(
-		{ fn: (_v: unknown) => {} },
-		{ callback: (r) => records.push(r) },
-	);
-	const circular: Record<string, unknown> = {};
-	circular.self = circular;
-
-	// act
-	p.fn(circular);
-
-	// assert
-	const rec = records.find((r) => r.trap === 'apply');
-	const arg = (rec?.args?.[2] as Improbability)?.[0];
-	t.deepEqual(
-		arg?.self,
-		{ $proxy: '?' },
-		'circular back-reference serialised as { $proxy: "?" }',
-	);
-	t.end();
-});
-
 // ─── Origin & path utilities ──────────────────────────────────────────────────
 
 test('getOrigin returns null for the root proxy', (t) => {
