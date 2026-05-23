@@ -28,6 +28,7 @@ export type {
 	Rekording,
 	Serialized,
 } from './types';
+export { isProxiable } from './types';
 
 /** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
 type Config = {
