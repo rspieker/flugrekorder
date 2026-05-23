@@ -36,12 +36,14 @@ type Config = {
 	write: (r: Rekording) => void;
 	recursive: boolean;
 	only: Set<string> | null;
+	filter: ((r: Rekording) => boolean) | null;
 };
 
 type CreateOptions = {
 	id?: number | (() => string);
 	recursive?: boolean;
 	only?: string[];
+	filter?: (rekording: Rekording) => boolean;
 } & (
 	| { stream: Writable; callback?: never }
 	| { callback: (record: Rekording) => void; stream?: never }
@@ -142,14 +144,16 @@ function makeProxy<T extends Proxiable>(
 					? spec.post(result, args, wrap)
 					: result;
 
-				config.write({
+				const rekording: Rekording = {
 					id: graph.nextId(),
 					trap,
 					origin: serializeOrigin(childOrigin),
 					args: args.map((arg) => serialize(arg, graph)),
 					result: serialize(output, graph),
 					timestamp: Date.now(),
-				});
+				};
+				if (!config.filter || config.filter(rekording))
+					config.write(rekording);
 
 				return output;
 			},
@@ -179,9 +183,10 @@ export function create<T extends Proxiable>(
 			callback!;
 	const recursive = options.recursive !== false;
 	const only = options.only ? new Set(options.only) : null;
+	const filter = options.filter ?? null;
 	const graph = new Graph(options.id ?? 0);
 
-	return makeProxy(target, graph, { write, recursive, only }, null);
+	return makeProxy(target, graph, { write, recursive, only, filter }, null);
 }
 
 /** Returns `true` if `value` is a proxy created by this module. */

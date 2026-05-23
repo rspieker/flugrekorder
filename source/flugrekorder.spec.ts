@@ -409,6 +409,81 @@ test('only: apply and get can be combined', (t) => {
 	t.end();
 });
 
+// ─── filter option ───────────────────────────────────────────────────────────
+
+test('filter: returning false suppresses the record', (t) => {
+	const records: Rekording[] = [];
+	const p = create(
+		{ port: 3000 },
+		{ callback: (r) => records.push(r), filter: () => false },
+	);
+
+	p.port;
+
+	t.equal(records.length, 0, 'no records emitted');
+	t.end();
+});
+
+test('filter: returning true passes the record through', (t) => {
+	const records: Rekording[] = [];
+	const p = create(
+		{ port: 3000 },
+		{ callback: (r) => records.push(r), filter: () => true },
+	);
+
+	p.port;
+
+	t.equal(records.length, 1, 'record emitted');
+	t.end();
+});
+
+test('filter: can select by trap type', (t) => {
+	const records: Rekording[] = [];
+	const p = create(
+		{ port: 3000 },
+		{ callback: (r) => records.push(r), filter: (r) => r.trap === 'set' },
+	);
+
+	p.port;
+	p.port = 9999;
+
+	t.equal(records.length, 1, 'only set record emitted');
+	t.equal(records[0].trap, 'set');
+	t.end();
+});
+
+test('filter: composes with only — both must pass', (t) => {
+	const records: Rekording[] = [];
+	const p = create(
+		{ port: 3000 },
+		{
+			callback: (r) => records.push(r),
+			only: ['get', 'set'],
+			filter: (r) => r.trap === 'set',
+		},
+	);
+
+	p.port;
+	p.port = 9999;
+
+	t.equal(records.length, 1, 'only set passes both only and filter');
+	t.equal(records[0].trap, 'set');
+	t.end();
+});
+
+test('filter: omitting filter emits all records', (t) => {
+	const records: Rekording[] = [];
+	const p = create({ port: 3000 }, { callback: (r) => records.push(r) });
+
+	p.port;
+	p.port = 9999;
+
+	const traps = records.map((r) => r.trap);
+	t.ok(traps.includes('get'), 'get emitted');
+	t.ok(traps.includes('set'), 'set emitted');
+	t.end();
+});
+
 // ─── Serialisation ────────────────────────────────────────────────────────────
 
 test('proxiable results are serialised as $proxy tags', (t) => {
