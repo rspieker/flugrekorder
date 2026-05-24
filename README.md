@@ -221,6 +221,57 @@ For 6 words, V8 made 9 comparisons — not 15 (the bubble sort worst case for 6 
 
 ---
 
+**Request logging**
+
+An HTTP server handles requests concurrently. `callback` accumulates records per request in memory — `stream` writes directly to disk as each trap fires. Custom IDs make records from concurrent requests separable: every record carries its request's namespace.
+
+```ts
+import { createServer } from 'node:http';
+import { createWriteStream } from 'node:fs';
+import { create } from 'flugrekorder';
+
+let n = 0;
+const log = createWriteStream('requests.ndjson');
+
+const server = createServer((req, res) => {
+  let seq = 0;
+  const rid = `req${++n}`;
+  let r!: typeof req;
+  r = create(req, { id: () => `${rid}:${++seq}`, stream: log });
+
+  if (r.url === '/hello') {
+    res.end(`Hello, ${r.method}!`);
+  } else {
+    res.statusCode = 404;
+    res.end(`not found: ${r.method}: ${r.url}`);
+  }
+});
+
+await new Promise<void>(resolve => server.listen(3000, resolve));
+console.log((await fetch('http://localhost:3000/hello')).status);
+console.log((await fetch('http://localhost:3000/missing')).status);
+server.close();
+```
+
+```
+200
+404
+```
+
+`requests.ndjson` — 3 lines written:
+
+```json
+{"id":"req1:2","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"url"},"args":[{"$proxy":"req1:1"},"url",{"$proxy":"req1:1"}],"result":"/hello","timestamp":1748091234100}
+{"id":"req1:3","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"method"},"args":[{"$proxy":"req1:1"},"method",{"$proxy":"req1:1"}],"result":"GET","timestamp":1748091234101}
+{"id":"req2:2","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$proxy":"req2:1"},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234150}
+...
+```
+
+Certainly not the average request log, but a full picture of what happened when, where and why.
+`req1:*` and `req2:*` are distinct namespaces in the same file. The 404 handler reads only `url` — `method` never appears in its records because the handler never touches it. Under concurrent load the records interleave by timestamp, but `grep req1` always isolates one request.
+
+---
+
 ## API
 
 ### `create(target, options)`
