@@ -183,6 +183,44 @@ db.toJSON().timeout → Infinity
 
 `protocol` was read but never set — `toJSON` had a hidden dependency. `timeout` recorded faithfully as `Infinity` throughout, then silently coerced to `null` in the final JSON because `Infinity` is not valid JSON.
 
+---
+
+**How many comparisons does `sort` need?**
+
+Sorting feels atomic — pass an array, get it back in order. But `sort` calls your comparator repeatedly, and the number of calls — and their order — is what the algorithm actually looks like. Writing every call to disk is an easy way to count them and examine the sequence afterwards.
+
+```ts
+import { createWriteStream } from 'node:fs';
+import { create } from 'flugrekorder';
+
+const words = ['banana', 'apple', 'elderberry', 'cherry', 'date', 'fig'];
+
+let compare!: (a: string, b: string) => number;
+compare = create((a: string, b: string) => a.localeCompare(b), {
+  only: ['apply'],
+  stream: createWriteStream('comparisons.ndjson'),
+});
+
+words.sort(compare);
+console.log(words);
+```
+
+```
+[ 'apple', 'banana', 'cherry', 'date', 'elderberry', 'fig' ]
+```
+
+`comparisons.ndjson` — 9 lines written, first two shown:
+
+```json
+{"id":"#2","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["apple","banana"]],"result":-1,"timestamp":1748091234567}
+{"id":"#3","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["elderberry","apple"]],"result":1,"timestamp":1748091234568}
+...
+```
+
+For 6 words, V8 made 9 comparisons — not 15 (the bubble sort worst case for 6 elements). The pattern is binary insertion sort: each word is binary-searched into position in the already-sorted prefix. `args[2]` holds the pair being compared; `result` is the comparator's return value. Swap the input for a larger or reverse-sorted list and the count — and the pattern — change.
+
+---
+
 ## API
 
 ### `create(target, options)`
