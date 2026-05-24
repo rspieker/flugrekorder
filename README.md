@@ -60,6 +60,46 @@ console.log(records.map((r) => `${r.id} ${r.trap}`));
 
 ---
 
+## Quick useful patterns
+
+**Watch sort rewrite your array**
+
+`sort` reads every element to compare, then writes every position back. Most developers think of it as a single operation. It isn't.
+
+```ts
+import { create, format } from 'flugrekorder';
+
+const todos = [
+  '🔲 document quick examples',
+  '🔲 release next version',
+  '✅ build flugrekorder',
+];
+let tracked!: typeof todos;
+tracked = create(todos, {
+  only: ['get', 'set', 'apply'],
+  callback: (r) => console.log(format(r, tracked)),
+});
+
+tracked[0] = tracked[0].replace('🔲', '✅');
+tracked.sort();
+```
+
+```
+0 → 🔲 document quick examples
+0 = ✅ document quick examples
+sort → sort
+length → 3
+0 → ✅ document quick examples
+1 → 🔲 release next version
+2 → ✅ build flugrekorder
+0 = ✅ build flugrekorder
+1 = ✅ document quick examples
+2 = 🔲 release next version
+sort()
+```
+
+The read phase (`→`) and write phase (`=`) are visible in sequence. After marking index `0` as done, `sort` reads all three items — including `✅ build flugrekorder` sitting at index `2` — then rewrites every position. The completed item from index `2` lands at `0` because `✅` sorts before `🔲`.
+
 ## API
 
 ### `create(target, options)`
