@@ -1,3 +1,4 @@
+import { createServer } from 'node:http';
 import { Writable } from 'node:stream';
 import test from 'tape';
 import { each } from 'template-literal-each';
@@ -1330,5 +1331,118 @@ test('stream sink: timestamp is present and numeric in NDJSON output', (t) => {
 	// assert
 	const rec = JSON.parse(lines[0]);
 	t.equal(typeof rec.timestamp, 'number', 'timestamp is a number in NDJSON');
+	t.end();
+});
+
+// ─── C++ binding boundary ─────────────────────────────────────────────────────
+
+test('wrapping http.Server and completing a full request lifecycle does not crash', (t) => {
+	// Before the fix, wrapping an http.Server caused a fatal V8 abort:
+	// GetAlignedPointerFromInternalField on a Proxy has no internal fields.
+	// This test would have reproduced that crash.
+	t.plan(1);
+	const raw = createServer((_req, res) => res.end('ok'));
+	const server = create(raw, { only: ['apply'], callback: () => {} });
+
+	server.listen(0, () => {
+		const { port } = raw.address() as { port: number };
+		fetch(`http://127.0.0.1:${port}/`).then(() => {
+			server.close(() => {
+				t.pass('request lifecycle completed without a native crash');
+				t.end();
+			});
+		});
+	});
+});
+
+test('C++ binding objects returned via get are not proxied', (t) => {
+	// The isECMABuiltin guard lets Map/Set/Date be proxied safely but returns
+	// C++ binding objects (TCP handles, ConnectionsList, …) unwrapped. If they
+	// were proxied, passing them to native code would crash V8 fatally.
+	t.plan(2);
+	const raw = createServer();
+
+	raw.listen(0, () => {
+		const server = create(raw, { callback: () => {} });
+		const handle = (server as Improbability)._handle;
+
+		t.ok(handle != null, 'server has a handle after listening');
+		t.equal(isFlugrekorder(handle), false, 'TCP handle is not a flugrekorder proxy');
+
+		raw.close(() => t.end());
+	});
+});
+
+test('defineProperty: C++ binding values in descriptors are not wrapped', (t) => {
+	// Covers the !isECMABuiltin branch in defineProperty.pre.
+	// When listen() runs with `this = serverProxy`, Node.js assigns this._handle = new TCP()
+	// which routes through Reflect.set(rawServer, '_handle', tcpHandle, serverProxy) →
+	// defineProperty trap with descriptor.value = tcpHandle (a C++ binding).
+	t.plan(1);
+	const raw = createServer((_req, res) => res.end('ok'));
+	const server = create(raw, { callback: () => {} });
+
+	server.listen(0, () => {
+		t.equal(
+			isFlugrekorder((server as Improbability)._handle),
+			false,
+			'TCP handle stored via defineProperty is not proxied',
+		);
+		server.close(() => t.end());
+	});
+});
+
+test('getOwnPropertyDescriptor: C++ binding values in returned descriptors are not wrapped', (t) => {
+	// Covers the !isECMABuiltin branch in getOwnPropertyDescriptor.post.
+	t.plan(2);
+	const raw = createServer();
+	raw.listen(0, () => {
+		const server = create(raw, { callback: () => {} });
+		const desc = Object.getOwnPropertyDescriptor(server as Improbability, '_handle');
+
+		t.ok(desc?.value != null, 'descriptor has a value after listening');
+		t.equal(
+			isFlugrekorder(desc?.value),
+			false,
+			'TCP handle in descriptor is not proxied',
+		);
+		raw.close(() => t.end());
+	});
+});
+
+test('apply:native is emitted when a function throws "Illegal invocation" and retries with real this', (t) => {
+	// A WeakSet keyed by the real object: a Proxy has distinct identity from its
+	// target, so has(proxy) returns false while has(realTarget) returns true.
+	// This mirrors a C++ native method that checks its internal slot against the
+	// real object and rejects the Proxy receiver.
+	const records: Rekording[] = [];
+	const isReal = new WeakSet<object>();
+	const obj: Record<string, unknown> = {
+		nativeLike: function (this: Improbability) {
+			if (!isReal.has(this)) throw new TypeError('Illegal invocation');
+			return 'ok';
+		},
+	};
+	isReal.add(obj);
+
+	const p = create(obj as Improbability, { callback: (r) => records.push(r) });
+
+	let result: unknown;
+	t.doesNotThrow(() => {
+		result = (p as Improbability).nativeLike();
+	}, 'does not re-throw — retried with real this');
+	t.equal(result, 'ok', 'correct return value from the retry');
+
+	const nativeRec = records.find((r) => r.trap === 'apply:native');
+	t.ok(nativeRec, 'apply:native record emitted');
+
+	const isUnwrapTag = (v: unknown): v is { $unwrap: { $proxy: string } } =>
+		typeof v === 'object' && v !== null && !Array.isArray(v) && '$unwrap' in (v as object);
+
+	t.ok(
+		isUnwrapTag(nativeRec?.args[1]),
+		'raw target (real this) serialized as $unwrap in args',
+	);
+
 	t.end();
 });
