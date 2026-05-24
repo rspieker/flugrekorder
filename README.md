@@ -132,6 +132,57 @@ Symbol(Symbol.toPrimitive)(number)
 
 `tracked + ''` passes `'default'`, not `'string'` — most developers expect string-hint here. For `Date` both resolve to the same string representation, but that is a `Date`-specific choice, not a JavaScript guarantee.
 
+---
+
+**What survives `JSON.stringify` — and what doesn't**
+
+`toJSON` lets an object control its own serialisation. Track one to see exactly what it reads, what it returns, and which values quietly disappear on the way to JSON.
+
+```ts
+import { create, format } from 'flugrekorder';
+
+const config: Record<string, Record<string, unknown>> = {
+  db: {
+    host: 'localhost',
+    port: 27017,
+    database: 'example',
+    timeout: Infinity,
+    toJSON() {
+      return {
+        dsn: `${this['protocol'] ?? 'mongodb'}://${this['host']}:${this['port']}/${this['database']}`,
+        timeout: this['timeout'],
+      };
+    },
+  },
+};
+
+let tracked!: typeof config;
+tracked = create(config, {
+  only: ['get', 'apply'],
+  callback: (r) => console.log(format(r, tracked)),
+});
+
+console.log(JSON.stringify(tracked));
+```
+
+```
+toJSON → undefined
+db → db
+db.toJSON → db.toJSON
+db.protocol → undefined
+db.host → localhost
+db.port → 27017
+db.database → example
+db.timeout → Infinity
+db.toJSON(db)
+db.toJSON().dsn → mongodb://localhost:27017/example
+db.toJSON().timeout → Infinity
+
+{"db":{"dsn":"mongodb://localhost:27017/example","timeout":null}}
+```
+
+`protocol` was read but never set — `toJSON` had a hidden dependency. `timeout` recorded faithfully as `Infinity` throughout, then silently coerced to `null` in the final JSON because `Infinity` is not valid JSON.
+
 ## API
 
 ### `create(target, options)`
