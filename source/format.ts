@@ -12,6 +12,8 @@ function display(v: Serialized, proxy?: Proxiable, limit = 80): string {
 	if (typeof v !== 'object') return String(v);
 	if (!Array.isArray(v) && '$proxy' in v)
 		return resolve(<string>v.$proxy, proxy);
+	if (!Array.isArray(v) && '$unwrap' in v)
+		return `↓${resolve((<{ $unwrap: { $proxy: string } }>v).$unwrap.$proxy, proxy)}`;
 	const raw = Array.isArray(v)
 		? `[${v.map((i) => display(i, proxy)).join(', ')}]`
 		: JSON.stringify(v);
@@ -41,8 +43,8 @@ export function format(rekording: Rekording, proxy?: Proxiable): string {
 		)
 			.map((a) => display(a, proxy))
 			.join(', ');
-		if (trap === 'apply') return `${path}(${callArgs})`;
-		if (trap === 'construct') return `new ${path}(${callArgs})`;
+		if (trap === 'apply' || trap === 'apply:native') return `${path}(${callArgs})`;
+		if (trap === 'construct' || trap === 'construct:native') return `new ${path}(${callArgs})`;
 	}
 
 	return `${trap} on ${id}`;

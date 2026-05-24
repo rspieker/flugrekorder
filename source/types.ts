@@ -8,8 +8,8 @@ export type PropertyTrap =
 	| 'defineProperty'
 	| 'getOwnPropertyDescriptor';
 
-/** Reflect traps that invoke a callable — carry a source ID in their origin. */
-export type CallTrap = 'apply' | 'construct';
+/** Reflect traps that invoke a callable — carry a source ID in their origin. Includes synthetic variants for native boundary crossings. */
+export type CallTrap = 'apply' | 'construct' | 'apply:native' | 'construct:native';
 
 /** Describes how a proxy was created — which trap fired, on which parent, and under which key or source. Null for root proxies. */
 export type Origin =
@@ -23,7 +23,7 @@ export type SerializedOrigin =
 	| { trap: CallTrap; source: string }
 	| null;
 
-/** A JSON-safe representation of any value. Proxiable values are replaced with `{ $proxy: id }` tags. */
+/** A JSON-safe representation of any value. Proxiable values are replaced with `{ $proxy: id }` tags. Raw targets (proxiable values known to the graph but passed unwrapped) are tagged `{ $unwrap: { $proxy: id } }`. */
 export type Serialized =
 	| string
 	| number
@@ -32,6 +32,7 @@ export type Serialized =
 	| null
 	| undefined
 	| { readonly $proxy: string }
+	| { readonly $unwrap: { readonly $proxy: string } }
 	| Array<Serialized>
 	| { [key: string]: Serialized };
 

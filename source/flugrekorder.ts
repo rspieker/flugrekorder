@@ -110,7 +110,7 @@ function makeProxy<T extends Proxiable>(
 			(...rawArgs: Array<unknown>) => {
 				const selfId = (<GraphNode>graph.getByProxy(pxy)).id;
 
-				const childOrigin: Origin =
+				let childOrigin: Origin =
 					/get|set|defineProperty|getOwnPropertyDescriptor/.test(trap)
 						? {
 								trap: <PropertyTrap>trap,
@@ -142,20 +142,48 @@ function makeProxy<T extends Proxiable>(
 				};
 
 				const spec = specs[trap] ?? {};
-				const args = spec.pre
+				const preArgs = spec.pre
 					? spec.pre(rawArgs, wrap, known)
 					: rawArgs;
-				// biome-ignore lint/complexity/noBannedTypes: dynamic Reflect dispatch requires Function cast
-				const result = (<Function>Reflect[trap])(...args);
+
+				let effectiveTrap: string = trap;
+				let effectiveArgs = preArgs;
+				let result: unknown;
+
+				try {
+					// biome-ignore lint/complexity/noBannedTypes: dynamic Reflect dispatch requires Function cast
+					result = (<Function>Reflect[trap])(...preArgs);
+				} catch (e) {
+					if (
+						trap === 'apply' &&
+						e instanceof TypeError &&
+						/illegal invocation/i.test(String(e))
+					) {
+						effectiveTrap = 'apply:native';
+						const realThis = isProxiable(preArgs[1])
+							? graph.getByProxy(<Proxiable>preArgs[1])?.target ?? preArgs[1]
+							: preArgs[1];
+						effectiveArgs = [preArgs[0], realThis, preArgs[2]];
+						childOrigin = { trap: <CallTrap>effectiveTrap, source: selfId };
+						result = Reflect.apply(
+							<(...a: unknown[]) => unknown>preArgs[0],
+							realThis,
+							<unknown[]>preArgs[2],
+						);
+					} else {
+						throw e;
+					}
+				}
+
 				const output = spec.post
-					? spec.post(result, args, wrap)
+					? spec.post(result, effectiveArgs, wrap)
 					: result;
 
 				const rekording: Rekording = {
 					id: graph.nextId(),
-					trap,
+					trap: effectiveTrap,
 					origin: serializeOrigin(childOrigin),
-					args: args.map((arg) =>
+					args: effectiveArgs.map((arg) =>
 						serialize(arg, graph, new Set(), config.serial),
 					),
 					result: serialize(output, graph, new Set(), config.serial),

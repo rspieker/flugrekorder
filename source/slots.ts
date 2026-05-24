@@ -14,7 +14,7 @@ const bindCache = new WeakMap<object, Map<PropertyKey, Function>>();
 
 // Slot-check TypeErrors have specific messages; filter by them to avoid
 // misclassifying TypeErrors thrown for other reasons (e.g. wrong arg count).
-const slotError = /incompatible receiver|this is not/i;
+const slotError = /incompatible receiver|this is not|illegal invocation/i;
 
 /**
  * Returns true if `target`'s prototype chain contains a getter that throws

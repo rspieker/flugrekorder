@@ -258,17 +258,18 @@ server.close();
 404
 ```
 
-`requests.ndjson` — 3 lines written:
+`requests.ndjson` — 5 lines written:
 
 ```json
-{"id":"req1:2","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"url"},"args":[{"$proxy":"req1:1"},"url",{"$proxy":"req1:1"}],"result":"/hello","timestamp":1748091234100}
-{"id":"req1:3","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"method"},"args":[{"$proxy":"req1:1"},"method",{"$proxy":"req1:1"}],"result":"GET","timestamp":1748091234101}
-{"id":"req2:2","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$proxy":"req2:1"},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234150}
-...
+{"id":"req1:2","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"url",{"$proxy":"req1:1"}],"result":"/hello","timestamp":1748091234100}
+{"id":"req1:3","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"method",{"$proxy":"req1:1"}],"result":"GET","timestamp":1748091234101}
+{"id":"req2:2","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234150}
+{"id":"req2:3","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"method",{"$proxy":"req2:1"}],"result":"GET","timestamp":1748091234151}
+{"id":"req2:4","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234151}
 ```
 
 Certainly not the average request log, but a full picture of what happened when, where and why.
-`req1:*` and `req2:*` are distinct namespaces in the same file. The 404 handler reads only `url` — `method` never appears in its records because the handler never touches it. Under concurrent load the records interleave by timestamp, but `grep req1` always isolates one request.
+`req1:*` and `req2:*` are distinct namespaces in the same file. `args[0]` carries `$unwrap` — the raw request object (not the proxy) — because that is what the Reflect `get` trap receives as its target. `args[2]` is the proxy receiver. The 404 handler reads `url` twice and `method` once — exactly as written. Under concurrent load the records interleave by timestamp, but `grep req1` always isolates one request.
 
 ---
 

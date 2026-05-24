@@ -1,8 +1,29 @@
 import { boundMethod, hasInternalSlots } from './slots';
-import type { Proxiable } from './types';
+import { isProxiable, type Proxiable } from './types';
 
 /** A function that conditionally wraps a value in a proxy. */
 export type Wrapper = (v: unknown) => unknown;
+
+/**
+ * Returns true for standard ECMAScript built-ins whose C++ implementations
+ * perform a JavaScript-level type check before touching internal fields —
+ * so they throw a catchable TypeError when called through a Proxy rather
+ * than crashing the process.  Distinguishes them from Node.js C++ bindings
+ * (TCP handles, ConnectionsList, HTTPParser, …) that crash fatally.
+ */
+function isECMABuiltin(v: unknown): boolean {
+	return (
+		v instanceof Promise ||
+		v instanceof Map ||
+		v instanceof Set ||
+		v instanceof WeakMap ||
+		v instanceof WeakSet ||
+		v instanceof Date ||
+		v instanceof RegExp ||
+		v instanceof ArrayBuffer ||
+		ArrayBuffer.isView(v)
+	);
+}
 
 /** Pre/post hooks for a Reflect trap — transform args before dispatch and/or wrap the result. */
 type Spec = {
@@ -30,14 +51,22 @@ export const specs: Partial<Record<string, Spec>> = {
 		// also pass.  The bind cache ensures proxy stability.
 		post: (result, [target, key], wrap) => {
 			if (key === 'prototype') return result;
-			if (
-				typeof result === 'function' &&
-				hasInternalSlots(target as Proxiable)
-			) {
-				return wrap(
-					boundMethod(target as object, key as PropertyKey, result),
-				);
+			if (hasInternalSlots(target as Proxiable)) {
+				if (typeof result === 'function')
+					return wrap(
+						boundMethod(target as object, key as PropertyKey, result),
+					);
 			}
+			// Don't proxy C++ binding objects — they crash native code when
+			// used as Proxies (e.g. ConnectionsList, TCP handles).  ECMAScript
+			// built-ins (Map, Set, Promise, Date …) are excluded: they have
+			// proper JS-level type checks and can be safely proxied.
+			if (
+				isProxiable(result) &&
+				hasInternalSlots(result as Proxiable) &&
+				!isECMABuiltin(result)
+			)
+				return result;
 			return wrap(result);
 		},
 	},
@@ -45,7 +74,14 @@ export const specs: Partial<Record<string, Spec>> = {
 		pre: ([target, key, value, receiver], wrap) => [
 			target,
 			key,
-			wrap(value),
+			// Don't wrap when target has slots (Map/Set internals) or when the
+			// value is an unsafe C++ binding (TCP handles, etc.).
+			hasInternalSlots(target as Proxiable) ||
+			(isProxiable(value) &&
+				hasInternalSlots(value as Proxiable) &&
+				!isECMABuiltin(value))
+				? value
+				: wrap(value),
 			receiver,
 		],
 	},
@@ -75,7 +111,15 @@ export const specs: Partial<Record<string, Spec>> = {
 			>args;
 			const patch: PropertyDescriptor = {};
 
-			if (descriptor.value != null) patch.value = wrap(descriptor.value);
+			if (
+				descriptor.value != null &&
+				!(
+					isProxiable(descriptor.value) &&
+					hasInternalSlots(descriptor.value as Proxiable) &&
+					!isECMABuiltin(descriptor.value)
+				)
+			)
+				patch.value = wrap(descriptor.value);
 			if (typeof descriptor.get === 'function')
 				patch.get = <() => unknown>wrap(descriptor.get);
 			if (typeof descriptor.set === 'function')
@@ -94,7 +138,15 @@ export const specs: Partial<Record<string, Spec>> = {
 
 			const patch: PropertyDescriptor = {};
 
-			if (desc.value != null) patch.value = wrap(desc.value);
+			if (
+				desc.value != null &&
+				!(
+					isProxiable(desc.value) &&
+					hasInternalSlots(desc.value as Proxiable) &&
+					!isECMABuiltin(desc.value)
+				)
+			)
+				patch.value = wrap(desc.value);
 			if (typeof desc.get === 'function')
 				patch.get = <() => unknown>wrap(desc.get);
 			if (typeof desc.set === 'function')

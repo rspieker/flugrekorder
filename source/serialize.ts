@@ -48,10 +48,11 @@ function proxiable(
 	// Check for a known proxy BEFORE Array.isArray: iterating a proxied
 	// array via its proxy triggers get traps which call serialize again,
 	// causing infinite recursion. A proxy is always tagged by ID.
-	const node =
-		graph.getByProxy(<Proxiable>v) ?? graph.getByTarget(<Proxiable>v);
+	const proxyNode = graph.getByProxy(<Proxiable>v);
+	if (proxyNode !== undefined) return { $proxy: proxyNode.id };
 
-	if (node !== undefined) return { $proxy: node.id };
+	const targetNode = graph.getByTarget(<Proxiable>v);
+	if (targetNode !== undefined) return { $unwrap: { $proxy: targetNode.id } };
 	if (depth >= serial.maxDepth) return "[…]";
 
 	// Plain (unproxied) arrays are safe to iterate directly.
