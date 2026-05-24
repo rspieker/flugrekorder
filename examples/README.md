@@ -139,6 +139,41 @@ HTTP 200 — 7085 bytes
 
 ---
 
+## 06 — HTTP server lifecycle
+
+**File:** [`06-http-server.ts`](06-http-server.ts)
+
+**The problem:** you want to see what a Node.js HTTP server does across its entire lifetime — which methods fire, in what order, with what arguments — without touching any application code.
+
+**The trick:** wrap the server itself instead of wrapping individual request objects. One proxy on `createServer()`'s return value covers the whole lifetime. `only: ['get', 'apply']` keeps the output to the two traps that matter: which functions are looked up (the wiring), and when they are called (the story). The request handler still receives the real `req` and `res` objects.
+
+```ts
+let server!: ReturnType<typeof createServer>;
+
+server = create(makeServer(), {
+  only: ['get', 'apply'],
+  callback(r) {
+    if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
+    const fn = getProxyById(r.origin.source, server);
+    if (fn) console.log(format(r, server));
+  },
+});
+```
+
+**Output:**
+```
+emit(listening)
+listen(3000, {})
+emit(connection, {...})
+emit(request, {"url":"/","method":"GET",...}, {"statusCode":200,...})
+close()
+emit(close)
+```
+
+`emit(listening)` appears before `listen(3000)` because it fires synchronously inside `listen()`'s execution, before the outer `listen` record is emitted. Swap `callback` for `stream` to write raw NDJSON to disk; each apply record carries `args[1]` as the server proxy and `args[2]` as the event payload.
+
+---
+
 ## 05 — Fetch interaction recorder
 
 **File:** [`05-fetch-interaction.ts`](05-fetch-interaction.ts)

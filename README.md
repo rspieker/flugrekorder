@@ -21,6 +21,7 @@ The recorder has no knowledge of what it wraps. If a dependency adds new methods
 - Here, we observe the code in its digital habitat. Undisturbed. Unmodified. Doing — what?
 - The scriptures tell one story. The scribes tell another.
 - You want a record. Not a theory, not a phantom — a record.
+- When the whole district looks suspicious, bring them all to the archives, every soul, every mouse, every elephant. They all give a statement. They don't get a choice.
 
 ---
 
