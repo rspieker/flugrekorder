@@ -100,6 +100,38 @@ sort()
 
 The read phase (`→`) and write phase (`=`) are visible in sequence. After marking index `0` as done, `sort` reads all three items — including `✅ build flugrekorder` sitting at index `2` — then rewrites every position. The completed item from index `2` lands at `0` because `✅` sorts before `🔲`.
 
+---
+
+**What hint JavaScript passes when it coerces your object**
+
+Every time JavaScript converts an object to a primitive, it calls `Symbol.toPrimitive` with a hint — `'string'`, `'number'`, or `'default'`. Track a `Date` to see which context passes which:
+
+```ts
+import { create, format } from 'flugrekorder';
+
+const date = new Date('2025-01-15T12:00:00Z');
+let tracked!: typeof date;
+tracked = create(date, {
+  only: ['get', 'apply'],
+  callback: (r) => console.log(format(r, tracked)),
+});
+
+`${tracked}`;   // template literal
+tracked + '';   // + operator
++tracked;       // unary plus
+```
+
+```
+Symbol(Symbol.toPrimitive) → Symbol(Symbol.toPrimitive)
+Symbol(Symbol.toPrimitive)(string)
+Symbol(Symbol.toPrimitive) → Symbol(Symbol.toPrimitive)
+Symbol(Symbol.toPrimitive)(default)
+Symbol(Symbol.toPrimitive) → Symbol(Symbol.toPrimitive)
+Symbol(Symbol.toPrimitive)(number)
+```
+
+`tracked + ''` passes `'default'`, not `'string'` — most developers expect string-hint here. For `Date` both resolve to the same string representation, but that is a `Date`-specific choice, not a JavaScript guarantee.
+
 ## API
 
 ### `create(target, options)`
