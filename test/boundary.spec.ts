@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
-import { test } from 'node:test';
+import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
 import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder';
 
@@ -41,9 +41,11 @@ function appliesFor(
 
 // ─── Native objects with internal slots ───────────────────────────────────────
 
-test('native objects with internal slots', () => {
-	// arrange
-	each`
+describe('test/boundary', () => {
+	describe('native objects', () => {
+		test('objects with internal slots', () => {
+			// arrange
+			each`
 		message        | input                       | access                                 | expect
 		-------------- | --------------------------- | -------------------------------------- | -------
 		Array.length   | ${[1, 2, 3]}                | ${(f: Improbability) => f.length}      | ${3}
@@ -53,364 +55,420 @@ test('native objects with internal slots', () => {
 		Set.has        | ${new Set([1, 2, 3])}       | ${(f: Improbability) => f.has(1)}      | ${true}
 		Date.getTime   | ${new Date(0)}              | ${(f: Improbability) => f.getTime()}   | ${0}
 	`(({ message, input, access, expect }: Improbability) => {
-		// act
-		// assert
-		const p = create(input, { callback: () => {} });
-		assert.strictEqual(access(p), expect, message);
+				// act
+				// assert
+				const p = create(input, { callback: () => {} });
+				assert.strictEqual(access(p), expect, message);
+			});
+		});
+
+		test('Map: set/get/delete of an object value are recorded', () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const obj = { id: 1 };
+			const p = create(new Map<string, typeof obj>(), {
+				callback: (r) => records.push(r),
+			});
+
+			// act
+			p.set('k', obj);
+			const retrieved = p.get('k');
+			const deleted = p.delete('k');
+
+			// assert
+			const [setRec] = appliesFor(records, 'set');
+			assert.ok(setRec, 'set call recorded');
+			assert.strictEqual(
+				(setRec?.args[2] as Improbability)[0],
+				'k',
+				'set key in args',
+			);
+			assert.ok(
+				isProxyTag(setRec?.result),
+				'set returns the Map as proxy',
+			);
+
+			const [getRec] = appliesFor(records, 'get');
+			assert.ok(getRec, 'get call recorded');
+			assert.strictEqual(
+				(getRec?.args[2] as Improbability)[0],
+				'k',
+				'get key in args',
+			);
+			assert.ok(
+				isProxyTag(getRec?.result),
+				'get result is the stored object (proxied)',
+			);
+			assert.ok(
+				isFlugrekorder(retrieved as object),
+				'retrieved value is a proxy',
+			);
+
+			const [deleteRec] = appliesFor(records, 'delete');
+			assert.ok(deleteRec, 'delete call recorded');
+			assert.strictEqual(
+				(deleteRec?.args[2] as Improbability)[0],
+				'k',
+				'delete key in args',
+			);
+			assert.strictEqual(
+				deleteRec?.result,
+				true,
+				'delete result recorded as true',
+			);
+			assert.strictEqual(deleted, true, 'delete return value is true');
+		});
+
+		test('Set: add/has/delete of an object are recorded', () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const obj = { id: 1 };
+			const p = create(new Set<typeof obj>(), {
+				callback: (r) => records.push(r),
+			});
+
+			// act
+			p.add(obj);
+			const before = p.has(obj);
+			p.delete(obj);
+			const after = p.has(obj);
+
+			// assert
+			const [addRec] = appliesFor(records, 'add');
+			assert.ok(addRec, 'add call recorded');
+			assert.ok(
+				isProxyTag(addRec?.result),
+				'add returns the Set as proxy',
+			);
+
+			const hasRecs = appliesFor(records, 'has');
+			assert.strictEqual(
+				hasRecs.length,
+				2,
+				'has called twice — both recorded',
+			);
+			assert.strictEqual(
+				hasRecs[0]?.result,
+				true,
+				'first has: true (after add)',
+			);
+			assert.strictEqual(
+				hasRecs[1]?.result,
+				false,
+				'second has: false (after delete)',
+			);
+			assert.strictEqual(
+				before,
+				true,
+				'has return value correct before delete',
+			);
+			assert.strictEqual(
+				after,
+				false,
+				'has return value correct after delete',
+			);
+
+			const [deleteRec] = appliesFor(records, 'delete');
+			assert.ok(deleteRec, 'delete call recorded');
+			assert.strictEqual(
+				deleteRec?.result,
+				true,
+				'delete result recorded as true',
+			);
+		});
+
+		test('WeakMap: set/get/delete of an object value are recorded', () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const key = { id: 'key' };
+			const value = { data: 42 };
+			const p = create(new WeakMap<typeof key, typeof value>(), {
+				callback: (r) => records.push(r),
+			});
+
+			// act
+			p.set(key, value);
+			const retrieved = p.get(key);
+			const deleted = p.delete(key);
+
+			// assert
+			const [setRec] = appliesFor(records, 'set');
+			assert.ok(setRec, 'set call recorded');
+			assert.ok(
+				(setRec?.args[2] as Improbability)[0],
+				'key arg present in recording',
+			);
+			assert.ok(
+				isProxyTag(setRec?.result),
+				'set returns the WeakMap as proxy',
+			);
+
+			const [getRec] = appliesFor(records, 'get');
+			assert.ok(getRec, 'get call recorded');
+			assert.ok(
+				isProxyTag(getRec?.result),
+				'get result is the stored value (proxied)',
+			);
+			assert.ok(
+				isFlugrekorder(retrieved as object),
+				'retrieved value is a proxy',
+			);
+			assert.strictEqual(
+				(retrieved as typeof value)?.data,
+				42,
+				'retrieved value is correct',
+			);
+
+			const [deleteRec] = appliesFor(records, 'delete');
+			assert.ok(deleteRec, 'delete call recorded');
+			assert.strictEqual(
+				deleteRec?.result,
+				true,
+				'delete result recorded as true',
+			);
+			assert.strictEqual(deleted, true, 'delete return value is true');
+		});
+
+		test('WeakSet: add/has/delete of an object are recorded', () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const obj = { id: 1 };
+			const p = create(new WeakSet<typeof obj>(), {
+				callback: (r) => records.push(r),
+			});
+
+			// act
+			p.add(obj);
+			const before = p.has(obj);
+			p.delete(obj);
+			const after = p.has(obj);
+
+			// assert
+			const [addRec] = appliesFor(records, 'add');
+			assert.ok(addRec, 'add call recorded');
+			assert.ok(
+				isProxyTag(addRec?.result),
+				'add returns the WeakSet as proxy',
+			);
+
+			const hasRecs = appliesFor(records, 'has');
+			assert.strictEqual(
+				hasRecs.length,
+				2,
+				'has called twice — both recorded',
+			);
+			assert.strictEqual(
+				hasRecs[0]?.result,
+				true,
+				'first has: true (after add)',
+			);
+			assert.strictEqual(
+				hasRecs[1]?.result,
+				false,
+				'second has: false (after delete)',
+			);
+			assert.strictEqual(
+				before,
+				true,
+				'has return value correct before delete',
+			);
+			assert.strictEqual(
+				after,
+				false,
+				'has return value correct after delete',
+			);
+
+			const [deleteRec] = appliesFor(records, 'delete');
+			assert.ok(deleteRec, 'delete call recorded');
+			assert.strictEqual(
+				deleteRec?.result,
+				true,
+				'delete result recorded as true',
+			);
+		});
 	});
-});
 
-test('Map: set/get/delete of an object value are recorded', () => {
-	// arrange
-	const records: Array<Rekording> = [];
-	const obj = { id: 1 };
-	const p = create(new Map<string, typeof obj>(), {
-		callback: (r) => records.push(r),
-	});
+	describe('C++ binding boundary', () => {
+		test('wrapping http.Server and completing a full request lifecycle does not crash', async () => {
+			// arrange
+			// Before the fix, wrapping an http.Server caused a fatal V8 abort:
+			// GetAlignedPointerFromInternalField on a Proxy has no internal fields.
+			const raw = createServer((_req, res) => res.end('ok'));
+			const server = create(raw, { only: ['apply'], callback: () => {} });
 
-	// act
-	p.set('k', obj);
-	const retrieved = p.get('k');
-	const deleted = p.delete('k');
+			// act
+			// assert
+			await new Promise<void>((resolve) => {
+				server.listen(0, () => {
+					const { port } = raw.address() as { port: number };
+					fetch(`http://127.0.0.1:${port}/`).then(() => {
+						server.close(() => resolve());
+					});
+				});
+			});
+		});
 
-	// assert
-	const [setRec] = appliesFor(records, 'set');
-	assert.ok(setRec, 'set call recorded');
-	assert.strictEqual(
-		(setRec?.args[2] as Improbability)[0],
-		'k',
-		'set key in args',
-	);
-	assert.ok(isProxyTag(setRec?.result), 'set returns the Map as proxy');
+		test('C++ binding objects returned via get are not proxied', async () => {
+			// arrange
+			// The isECMABuiltin guard lets Map/Set/Date be proxied safely but returns
+			// C++ binding objects (TCP handles, ConnectionsList, …) unwrapped. If they
+			// were proxied, passing them to native code would crash V8 fatally.
+			const raw = createServer();
 
-	const [getRec] = appliesFor(records, 'get');
-	assert.ok(getRec, 'get call recorded');
-	assert.strictEqual(
-		(getRec?.args[2] as Improbability)[0],
-		'k',
-		'get key in args',
-	);
-	assert.ok(
-		isProxyTag(getRec?.result),
-		'get result is the stored object (proxied)',
-	);
-	assert.ok(
-		isFlugrekorder(retrieved as object),
-		'retrieved value is a proxy',
-	);
+			// act
+			// assert
+			await new Promise<void>((resolve) => {
+				raw.listen(0, () => {
+					const server = create(raw, { callback: () => {} });
+					const handle = (server as Improbability)._handle;
 
-	const [deleteRec] = appliesFor(records, 'delete');
-	assert.ok(deleteRec, 'delete call recorded');
-	assert.strictEqual(
-		(deleteRec?.args[2] as Improbability)[0],
-		'k',
-		'delete key in args',
-	);
-	assert.strictEqual(
-		deleteRec?.result,
-		true,
-		'delete result recorded as true',
-	);
-	assert.strictEqual(deleted, true, 'delete return value is true');
-});
+					assert.ok(
+						handle != null,
+						'server has a handle after listening',
+					);
+					assert.strictEqual(
+						isFlugrekorder(handle),
+						false,
+						'TCP handle is not a flugrekorder proxy',
+					);
 
-test('Set: add/has/delete of an object are recorded', () => {
-	// arrange
-	const records: Array<Rekording> = [];
-	const obj = { id: 1 };
-	const p = create(new Set<typeof obj>(), {
-		callback: (r) => records.push(r),
-	});
+					raw.close(() => resolve());
+				});
+			});
+		});
 
-	// act
-	p.add(obj);
-	const before = p.has(obj);
-	p.delete(obj);
-	const after = p.has(obj);
+		test('defineProperty: C++ binding values in descriptors are not wrapped', async () => {
+			// arrange
+			// When listen() runs with `this = serverProxy`, Node.js assigns this._handle = new TCP()
+			// which routes through Reflect.set → defineProperty trap with descriptor.value = tcpHandle.
+			const raw = createServer((_req, res) => res.end('ok'));
+			const server = create(raw, { callback: () => {} });
 
-	// assert
-	const [addRec] = appliesFor(records, 'add');
-	assert.ok(addRec, 'add call recorded');
-	assert.ok(isProxyTag(addRec?.result), 'add returns the Set as proxy');
+			// act
+			// assert
+			await new Promise<void>((resolve) => {
+				server.listen(0, () => {
+					assert.strictEqual(
+						isFlugrekorder((server as Improbability)._handle),
+						false,
+						'TCP handle stored via defineProperty is not proxied',
+					);
+					server.close(() => resolve());
+				});
+			});
+		});
 
-	const hasRecs = appliesFor(records, 'has');
-	assert.strictEqual(hasRecs.length, 2, 'has called twice — both recorded');
-	assert.strictEqual(hasRecs[0]?.result, true, 'first has: true (after add)');
-	assert.strictEqual(
-		hasRecs[1]?.result,
-		false,
-		'second has: false (after delete)',
-	);
-	assert.strictEqual(before, true, 'has return value correct before delete');
-	assert.strictEqual(after, false, 'has return value correct after delete');
+		test('getOwnPropertyDescriptor: C++ binding values in returned descriptors are not wrapped', async () => {
+			// arrange
+			const raw = createServer();
 
-	const [deleteRec] = appliesFor(records, 'delete');
-	assert.ok(deleteRec, 'delete call recorded');
-	assert.strictEqual(
-		deleteRec?.result,
-		true,
-		'delete result recorded as true',
-	);
-});
+			// act
+			// assert
+			await new Promise<void>((resolve) => {
+				raw.listen(0, () => {
+					const server = create(raw, { callback: () => {} });
+					const desc = Object.getOwnPropertyDescriptor(
+						server as Improbability,
+						'_handle',
+					);
 
-test('WeakMap: set/get/delete of an object value are recorded', () => {
-	// arrange
-	const records: Array<Rekording> = [];
-	const key = { id: 'key' };
-	const value = { data: 42 };
-	const p = create(new WeakMap<typeof key, typeof value>(), {
-		callback: (r) => records.push(r),
-	});
-
-	// act
-	p.set(key, value);
-	const retrieved = p.get(key);
-	const deleted = p.delete(key);
-
-	// assert
-	const [setRec] = appliesFor(records, 'set');
-	assert.ok(setRec, 'set call recorded');
-	assert.ok(
-		(setRec?.args[2] as Improbability)[0],
-		'key arg present in recording',
-	);
-	assert.ok(isProxyTag(setRec?.result), 'set returns the WeakMap as proxy');
-
-	const [getRec] = appliesFor(records, 'get');
-	assert.ok(getRec, 'get call recorded');
-	assert.ok(
-		isProxyTag(getRec?.result),
-		'get result is the stored value (proxied)',
-	);
-	assert.ok(
-		isFlugrekorder(retrieved as object),
-		'retrieved value is a proxy',
-	);
-	assert.strictEqual(
-		(retrieved as typeof value)?.data,
-		42,
-		'retrieved value is correct',
-	);
-
-	const [deleteRec] = appliesFor(records, 'delete');
-	assert.ok(deleteRec, 'delete call recorded');
-	assert.strictEqual(
-		deleteRec?.result,
-		true,
-		'delete result recorded as true',
-	);
-	assert.strictEqual(deleted, true, 'delete return value is true');
-});
-
-test('WeakSet: add/has/delete of an object are recorded', () => {
-	// arrange
-	const records: Array<Rekording> = [];
-	const obj = { id: 1 };
-	const p = create(new WeakSet<typeof obj>(), {
-		callback: (r) => records.push(r),
-	});
-
-	// act
-	p.add(obj);
-	const before = p.has(obj);
-	p.delete(obj);
-	const after = p.has(obj);
-
-	// assert
-	const [addRec] = appliesFor(records, 'add');
-	assert.ok(addRec, 'add call recorded');
-	assert.ok(isProxyTag(addRec?.result), 'add returns the WeakSet as proxy');
-
-	const hasRecs = appliesFor(records, 'has');
-	assert.strictEqual(hasRecs.length, 2, 'has called twice — both recorded');
-	assert.strictEqual(hasRecs[0]?.result, true, 'first has: true (after add)');
-	assert.strictEqual(
-		hasRecs[1]?.result,
-		false,
-		'second has: false (after delete)',
-	);
-	assert.strictEqual(before, true, 'has return value correct before delete');
-	assert.strictEqual(after, false, 'has return value correct after delete');
-
-	const [deleteRec] = appliesFor(records, 'delete');
-	assert.ok(deleteRec, 'delete call recorded');
-	assert.strictEqual(
-		deleteRec?.result,
-		true,
-		'delete result recorded as true',
-	);
-});
-
-// ─── C++ binding boundary ─────────────────────────────────────────────────────
-
-test('wrapping http.Server and completing a full request lifecycle does not crash', async () => {
-	// arrange
-	// Before the fix, wrapping an http.Server caused a fatal V8 abort:
-	// GetAlignedPointerFromInternalField on a Proxy has no internal fields.
-	const raw = createServer((_req, res) => res.end('ok'));
-	const server = create(raw, { only: ['apply'], callback: () => {} });
-
-	// act
-	// assert
-	await new Promise<void>((resolve) => {
-		server.listen(0, () => {
-			const { port } = raw.address() as { port: number };
-			fetch(`http://127.0.0.1:${port}/`).then(() => {
-				server.close(() => resolve());
+					assert.ok(
+						desc?.value != null,
+						'descriptor has a value after listening',
+					);
+					assert.strictEqual(
+						isFlugrekorder(desc?.value),
+						false,
+						'TCP handle in descriptor is not proxied',
+					);
+					raw.close(() => resolve());
+				});
 			});
 		});
 	});
-});
 
-test('C++ binding objects returned via get are not proxied', async () => {
-	// arrange
-	// The isECMABuiltin guard lets Map/Set/Date be proxied safely but returns
-	// C++ binding objects (TCP handles, ConnectionsList, …) unwrapped. If they
-	// were proxied, passing them to native code would crash V8 fatally.
-	const raw = createServer();
+	describe('slot detection', () => {
+		test('slot detection: non-TypeError exceptions during probe do not misclassify the target', () => {
+			// arrange
+			// The slot probe catches TypeErrors with specific messages; any other exception
+			// (e.g. RangeError) must not be mistaken for a slot check failure.
+			class ThrowsOnProbe {
+				get value(): number {
+					throw new RangeError('not a slot error');
+				}
+			}
+			const p = create(new ThrowsOnProbe(), { callback: () => {} });
 
-	// act
-	// assert
-	await new Promise<void>((resolve) => {
-		raw.listen(0, () => {
-			const server = create(raw, { callback: () => {} });
-			const handle = (server as Improbability)._handle;
-
-			assert.ok(handle != null, 'server has a handle after listening');
-			assert.strictEqual(
-				isFlugrekorder(handle),
-				false,
-				'TCP handle is not a flugrekorder proxy',
-			);
-
-			raw.close(() => resolve());
+			// act
+			// assert
+			assert.throws(() => (p as Improbability).value, RangeError);
 		});
 	});
-});
 
-test('defineProperty: C++ binding values in descriptors are not wrapped', async () => {
-	// arrange
-	// When listen() runs with `this = serverProxy`, Node.js assigns this._handle = new TCP()
-	// which routes through Reflect.set → defineProperty trap with descriptor.value = tcpHandle.
-	const raw = createServer((_req, res) => res.end('ok'));
-	const server = create(raw, { callback: () => {} });
+	describe('apply:native', () => {
+		test('apply:native is emitted when a function throws "Illegal invocation" and retries with real this', () => {
+			// arrange
+			// A WeakSet keyed by the real object: a Proxy has distinct identity from its
+			// target, so has(proxy) returns false while has(realTarget) returns true.
+			const records: Array<Rekording> = [];
+			const isReal = new WeakSet<object>();
+			const obj: Record<string, unknown> = {
+				nativeLike: function (this: Improbability) {
+					if (!isReal.has(this))
+						throw new TypeError('Illegal invocation');
+					return 'ok';
+				},
+			};
+			isReal.add(obj);
+			const p = create(obj as Improbability, {
+				callback: (r) => records.push(r),
+			});
 
-	// act
-	// assert
-	await new Promise<void>((resolve) => {
-		server.listen(0, () => {
+			// act
+			// assert
+			const result = (p as Improbability).nativeLike();
 			assert.strictEqual(
-				isFlugrekorder((server as Improbability)._handle),
-				false,
-				'TCP handle stored via defineProperty is not proxied',
+				result,
+				'ok',
+				'correct return value from the retry',
 			);
-			server.close(() => resolve());
-		});
-	});
-});
 
-test('getOwnPropertyDescriptor: C++ binding values in returned descriptors are not wrapped', async () => {
-	// arrange
-	const raw = createServer();
+			const nativeRec = records.find((r) => r.trap === 'apply:native');
+			assert.ok(nativeRec, 'apply:native record emitted');
 
-	// act
-	// assert
-	await new Promise<void>((resolve) => {
-		raw.listen(0, () => {
-			const server = create(raw, { callback: () => {} });
-			const desc = Object.getOwnPropertyDescriptor(
-				server as Improbability,
-				'_handle',
-			);
+			const isUnwrapTag = (
+				v: unknown,
+			): v is { $unwrap: { $proxy: string } } =>
+				typeof v === 'object' &&
+				v !== null &&
+				!Array.isArray(v) &&
+				'$unwrap' in (v as object);
 
 			assert.ok(
-				desc?.value != null,
-				'descriptor has a value after listening',
+				isUnwrapTag(nativeRec?.args[1]),
+				'raw target (real this) serialized as $unwrap in args',
 			);
-			assert.strictEqual(
-				isFlugrekorder(desc?.value),
-				false,
-				'TCP handle in descriptor is not proxied',
+		});
+
+		test('apply trap re-throws errors that are not "illegal invocation" TypeErrors', () => {
+			// arrange
+			// Only TypeErrors matching /illegal invocation/ trigger the apply:native retry;
+			// all other errors must propagate unchanged.
+			const target = {
+				fn() {
+					throw new TypeError('something went wrong');
+				},
+			};
+			const p = create(target, { callback: () => {} });
+
+			// act
+			// assert
+			assert.throws(
+				() => (p as Improbability).fn(),
+				(e: unknown) =>
+					e instanceof TypeError &&
+					String(e).includes('something went wrong'),
 			);
-			raw.close(() => resolve());
 		});
 	});
-});
-
-// ─── Slot detection edge cases ────────────────────────────────────────────────
-
-test('slot detection: non-TypeError exceptions during probe do not misclassify the target', () => {
-	// arrange
-	// The slot probe catches TypeErrors with specific messages; any other exception
-	// (e.g. RangeError) must not be mistaken for a slot check failure.
-	class ThrowsOnProbe {
-		get value(): number {
-			throw new RangeError('not a slot error');
-		}
-	}
-	const p = create(new ThrowsOnProbe(), { callback: () => {} });
-
-	// act
-	// assert
-	assert.throws(() => (p as Improbability).value, RangeError);
-});
-
-// ─── apply:native ─────────────────────────────────────────────────────────────
-
-test('apply:native is emitted when a function throws "Illegal invocation" and retries with real this', () => {
-	// arrange
-	// A WeakSet keyed by the real object: a Proxy has distinct identity from its
-	// target, so has(proxy) returns false while has(realTarget) returns true.
-	const records: Array<Rekording> = [];
-	const isReal = new WeakSet<object>();
-	const obj: Record<string, unknown> = {
-		nativeLike: function (this: Improbability) {
-			if (!isReal.has(this)) throw new TypeError('Illegal invocation');
-			return 'ok';
-		},
-	};
-	isReal.add(obj);
-	const p = create(obj as Improbability, {
-		callback: (r) => records.push(r),
-	});
-
-	// act
-	// assert
-	const result = (p as Improbability).nativeLike();
-	assert.strictEqual(result, 'ok', 'correct return value from the retry');
-
-	const nativeRec = records.find((r) => r.trap === 'apply:native');
-	assert.ok(nativeRec, 'apply:native record emitted');
-
-	const isUnwrapTag = (v: unknown): v is { $unwrap: { $proxy: string } } =>
-		typeof v === 'object' &&
-		v !== null &&
-		!Array.isArray(v) &&
-		'$unwrap' in (v as object);
-
-	assert.ok(
-		isUnwrapTag(nativeRec?.args[1]),
-		'raw target (real this) serialized as $unwrap in args',
-	);
-});
-
-test('apply trap re-throws errors that are not "illegal invocation" TypeErrors', () => {
-	// arrange
-	// Only TypeErrors matching /illegal invocation/ trigger the apply:native retry;
-	// all other errors must propagate unchanged.
-	const target = {
-		fn() {
-			throw new TypeError('something went wrong');
-		},
-	};
-	const p = create(target, { callback: () => {} });
-
-	// act
-	// assert
-	assert.throws(
-		() => (p as Improbability).fn(),
-		(e: unknown) =>
-			e instanceof TypeError &&
-			String(e).includes('something went wrong'),
-	);
 });
