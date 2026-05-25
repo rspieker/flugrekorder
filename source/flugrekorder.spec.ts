@@ -1,6 +1,7 @@
 import { createServer } from 'node:http';
 import { Writable } from 'node:stream';
-import test from 'tape';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { each } from 'template-literal-each';
 import {
 	create,
@@ -42,7 +43,7 @@ function makeStream() {
 
 // ─── Core proxy behaviour ─────────────────────────────────────────────────────
 
-test('traps with no origin mapping (e.g. has) emit a rekording with null origin', (t) => {
+test('traps with no origin mapping (e.g. has) emit a rekording with null origin', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ x: 1 }, { callback: (r) => records.push(r) });
@@ -52,25 +53,25 @@ test('traps with no origin mapping (e.g. has) emit a rekording with null origin'
 
 	// assert
 	const rec = records.find((r) => r.trap === 'has');
-	t.ok(rec, 'has record emitted');
-	t.equal(
+	assert.ok(rec, 'has record emitted');
+	assert.strictEqual(
 		rec?.origin,
 		null,
 		'origin is null for traps outside the origin mapping',
 	);
-	t.end();
+
 });
 
-test('primitives are returned unchanged through get', (t) => {
+test('primitives are returned unchanged through get', () => {
 	const p = create({ n: 42, s: 'hi', b: true }, { callback: () => {} });
 
-	t.equal(p.n, 42, 'number');
-	t.equal(p.s, 'hi', 'string');
-	t.equal(p.b, true, 'boolean');
-	t.end();
+	assert.strictEqual(p.n, 42, 'number');
+	assert.strictEqual(p.s, 'hi', 'string');
+	assert.strictEqual(p.b, true, 'boolean');
+
 });
 
-test('get trap emits one rekording per property access', (t) => {
+test('get trap emits one rekording per property access', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: 1, b: 2 }, { callback: (r) => records.push(r) });
@@ -80,15 +81,15 @@ test('get trap emits one rekording per property access', (t) => {
 	p.b;
 
 	// assert
-	t.equal(
+	assert.strictEqual(
 		records.filter((r) => r.trap === 'get').length,
 		2,
 		'two get records',
 	);
-	t.end();
+
 });
 
-test('set trap emits a rekording and mutates the underlying value', (t) => {
+test('set trap emits a rekording and mutates the underlying value', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const target: { a: number } = { a: 1 };
@@ -105,12 +106,12 @@ test('set trap emits a rekording and mutates the underlying value', (t) => {
 			'key' in r.origin &&
 			r.origin.key === 'a',
 	);
-	t.ok(rec, 'set record emitted');
-	t.equal(target.a, 99, 'underlying value mutated');
-	t.end();
+	assert.ok(rec, 'set record emitted');
+	assert.strictEqual(target.a, 99, 'underlying value mutated');
+
 });
 
-test('apply trap emits a rekording and returns the correct value', (t) => {
+test('apply trap emits a rekording and returns the correct value', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create(
@@ -119,15 +120,15 @@ test('apply trap emits a rekording and returns the correct value', (t) => {
 	);
 
 	// act + assert
-	t.equal(p.double(5), 10, 'return value is correct');
-	t.ok(
+	assert.strictEqual(p.double(5), 10, 'return value is correct');
+	assert.ok(
 		records.some((r) => r.trap === 'apply'),
 		'apply record emitted',
 	);
-	t.end();
+
 });
 
-test('construct trap emits a rekording and returns an instance', (t) => {
+test('construct trap emits a rekording and returns an instance', () => {
 	// arrange
 	const records: Rekording[] = [];
 	class Counter {
@@ -139,15 +140,15 @@ test('construct trap emits a rekording and returns an instance', (t) => {
 	const instance = new p();
 
 	// assert
-	t.ok(
+	assert.ok(
 		records.some((r) => r.trap === 'construct'),
 		'construct record emitted',
 	);
-	t.equal(instance.count, 0, 'instance has correct initial state');
-	t.end();
+	assert.strictEqual(instance.count, 0, 'instance has correct initial state');
+
 });
 
-test('returned proxiable values are themselves proxied', (t) => {
+test('returned proxiable values are themselves proxied', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create(
@@ -161,22 +162,22 @@ test('returned proxiable values are themselves proxied', (t) => {
 	nested.x;
 
 	// assert
-	t.ok(
+	assert.ok(
 		records.length > before,
 		'accessing a property on a returned nested proxy emits further records',
 	);
-	t.end();
+
 });
 
-test('proxy stability: the same underlying object always returns the same proxy', (t) => {
+test('proxy stability: the same underlying object always returns the same proxy', () => {
 	const shared = { v: 1 };
 	const p = create({ a: shared, b: shared }, { callback: () => {} });
 
-	t.equal(p.a, p.b, 'both references return the identical proxy instance');
-	t.end();
+	assert.strictEqual(p.a, p.b, 'both references return the identical proxy instance');
+
 });
 
-test('a known target passed as a call argument is proxied, so interactions on it are recorded', (t) => {
+test('a known target passed as a call argument is proxied, so interactions on it are recorded', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const child = { x: 42 };
@@ -201,14 +202,14 @@ test('a known target passed as a call argument is proxied, so interactions on it
 				'key' in r.origin &&
 				r.origin.key === 'x',
 		);
-	t.ok(
+	assert.ok(
 		xAccess,
 		'get trap for x fires when known target is passed as argument',
 	);
-	t.end();
+
 });
 
-test('no recursion when a method mutates this', (t) => {
+test('no recursion when a method mutates this', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const target = {
@@ -219,15 +220,13 @@ test('no recursion when a method mutates this', (t) => {
 	};
 	const p = create(target, { callback: (r) => records.push(r) });
 
-	// act + assert
-	t.doesNotThrow(() => {
-		t.equal(p.inc(), 1, 'returns 1');
-		t.equal(target.c, 1, 'underlying counter incremented');
-	}, 'method that uses this does not cause infinite recursion');
-	t.end();
+	// act + assert — if inc() throws it means infinite recursion; node:test catches it
+	assert.strictEqual(p.inc(), 1, 'returns 1');
+	assert.strictEqual(target.c, 1, 'underlying counter incremented');
+
 });
 
-test('a known proxy passed back through a trap is not double-wrapped', (t) => {
+test('a known proxy passed back through a trap is not double-wrapped', () => {
 	const target = {
 		getSelf(): Improbability {
 			return this;
@@ -235,21 +234,21 @@ test('a known proxy passed back through a trap is not double-wrapped', (t) => {
 	};
 	const p = create(target, { callback: () => {} });
 
-	t.equal(p.getSelf(), p, 'getSelf() returns the same proxy instance');
-	t.end();
+	assert.strictEqual(p.getSelf(), p, 'getSelf() returns the same proxy instance');
+
 });
 
-test('arrays are proxied and elements remain accessible', (t) => {
+test('arrays are proxied and elements remain accessible', () => {
 	const p = create({ arr: [10, 20, 30] }, { callback: () => {} });
 	const arr = p.arr;
 
-	t.equal(arr[0], 10, 'first element');
-	t.equal(arr[2], 30, 'last element');
-	t.equal(arr.length, 3, 'length');
-	t.end();
+	assert.strictEqual(arr[0], 10, 'first element');
+	assert.strictEqual(arr[2], 30, 'last element');
+	assert.strictEqual(arr.length, 3, 'length');
+
 });
 
-test('prototype access is not wrapped and does not violate proxy invariants', (t) => {
+test('prototype access is not wrapped and does not violate proxy invariants', () => {
 	class Foo {
 		bar() {
 			return 1;
@@ -257,46 +256,46 @@ test('prototype access is not wrapped and does not violate proxy invariants', (t
 	}
 	const p = create(new Foo(), { callback: () => {} });
 
-	t.doesNotThrow(() => p.bar(), 'calling a prototype method does not throw');
-	t.end();
+	assert.doesNotThrow(() => p.bar(), 'calling a prototype method does not throw');
+
 });
 
-test('instanceof still works after proxying', (t) => {
+test('instanceof still works after proxying', () => {
 	class Foo {}
 	const original = new Foo();
 	const p = create(original, { callback: () => {} });
 
-	t.ok(p instanceof Foo, 'instanceof Foo is preserved on the proxy');
-	t.end();
+	assert.ok(p instanceof Foo, 'instanceof Foo is preserved on the proxy');
+
 });
 
 // ─── isFlugrekorder ──────────────────────────────────────────────────────
 
-test('isFlugrekorder returns true for a proxy created by create()', (t) => {
+test('isFlugrekorder returns true for a proxy created by create()', () => {
 	const p = create({ x: 1 }, { callback: () => {} });
 
-	t.ok(isFlugrekorder(p), 'root proxy is recognised');
-	t.end();
+	assert.ok(isFlugrekorder(p), 'root proxy is recognised');
+
 });
 
-test('isFlugrekorder returns true for a child proxy', (t) => {
+test('isFlugrekorder returns true for a child proxy', () => {
 	const p = create({ a: { v: 1 } }, { callback: () => {} });
 
-	t.ok(isFlugrekorder(p.a), 'child proxy is recognised');
-	t.end();
+	assert.ok(isFlugrekorder(p.a), 'child proxy is recognised');
+
 });
 
-test('isFlugrekorder returns false for plain objects and primitives', (t) => {
-	t.notOk(isFlugrekorder({}), 'plain object');
-	t.notOk(isFlugrekorder(42), 'number');
-	t.notOk(isFlugrekorder(null), 'null');
-	t.notOk(isFlugrekorder('hi'), 'string');
-	t.end();
+test('isFlugrekorder returns false for plain objects and primitives', () => {
+	assert.strictEqual(isFlugrekorder({}), false, 'plain object');
+	assert.strictEqual(isFlugrekorder(42), false, 'number');
+	assert.strictEqual(isFlugrekorder(null), false, 'null');
+	assert.strictEqual(isFlugrekorder('hi'), false, 'string');
+
 });
 
 // ─── recursive option ────────────────────────────────────────────────────────
 
-test('recursive: true (default) proxies nested values', (t) => {
+test('recursive: true (default) proxies nested values', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: { b: 1 } }, { callback: (r) => records.push(r) });
@@ -307,11 +306,11 @@ test('recursive: true (default) proxies nested values', (t) => {
 	a.b;
 
 	// assert
-	t.ok(records.length > before, 'nested access emits additional records');
-	t.end();
+	assert.ok(records.length > before, 'nested access emits additional records');
+
 });
 
-test('recursive: false does not proxy values returned from traps', (t) => {
+test('recursive: false does not proxy values returned from traps', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create(
@@ -321,11 +320,11 @@ test('recursive: false does not proxy values returned from traps', (t) => {
 
 	// act + assert
 	const a = p.a;
-	t.notOk(isFlugrekorder(a), 'returned nested value is not a proxy');
-	t.end();
+	assert.strictEqual(isFlugrekorder(a), false, 'returned nested value is not a proxy');
+
 });
 
-test('recursive: false still emits records for the root proxy', (t) => {
+test('recursive: false still emits records for the root proxy', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create(
@@ -337,16 +336,16 @@ test('recursive: false still emits records for the root proxy', (t) => {
 	p.x;
 
 	// assert
-	t.ok(
+	assert.ok(
 		records.some((r) => r.trap === 'get'),
 		'get record still emitted on root',
 	);
-	t.end();
+
 });
 
 // ─── only option ─────────────────────────────────────────────────────────────
 
-test('only: restricts which traps emit records', (t) => {
+test('only: restricts which traps emit records', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const target: { a: number } = { a: 1 };
@@ -360,18 +359,19 @@ test('only: restricts which traps emit records', (t) => {
 	p.a = 99;
 
 	// assert
-	t.ok(
+	assert.ok(
 		records.every((r) => r.trap === 'get'),
 		'only get records emitted',
 	);
-	t.notOk(
+	assert.strictEqual(
 		records.some((r) => r.trap === 'set'),
+		false,
 		'no set records emitted',
 	);
-	t.end();
+
 });
 
-test('only: traps not in the list still execute correctly (pass-through)', (t) => {
+test('only: traps not in the list still execute correctly (pass-through)', () => {
 	// arrange
 	const target: { a: number } = { a: 1 };
 	const p = create(target, {
@@ -383,15 +383,15 @@ test('only: traps not in the list still execute correctly (pass-through)', (t) =
 	p.a = 99;
 
 	// assert
-	t.equal(
+	assert.strictEqual(
 		target.a,
 		99,
 		'set passes through and mutates target even when not recorded',
 	);
-	t.end();
+
 });
 
-test('only: apply and get can be combined', (t) => {
+test('only: apply and get can be combined', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create(
@@ -404,15 +404,15 @@ test('only: apply and get can be combined', (t) => {
 
 	// assert
 	const traps = new Set(records.map((r) => r.trap));
-	t.ok(traps.has('get'), 'get recorded');
-	t.ok(traps.has('apply'), 'apply recorded');
-	t.equal(traps.size, 2, 'no other traps recorded');
-	t.end();
+	assert.ok(traps.has('get'), 'get recorded');
+	assert.ok(traps.has('apply'), 'apply recorded');
+	assert.strictEqual(traps.size, 2, 'no other traps recorded');
+
 });
 
 // ─── filter option ───────────────────────────────────────────────────────────
 
-test('filter: returning false suppresses the record', (t) => {
+test('filter: returning false suppresses the record', () => {
 	const records: Rekording[] = [];
 	const p = create(
 		{ port: 3000 },
@@ -421,11 +421,11 @@ test('filter: returning false suppresses the record', (t) => {
 
 	p.port;
 
-	t.equal(records.length, 0, 'no records emitted');
-	t.end();
+	assert.strictEqual(records.length, 0, 'no records emitted');
+
 });
 
-test('filter: returning true passes the record through', (t) => {
+test('filter: returning true passes the record through', () => {
 	const records: Rekording[] = [];
 	const p = create(
 		{ port: 3000 },
@@ -434,11 +434,11 @@ test('filter: returning true passes the record through', (t) => {
 
 	p.port;
 
-	t.equal(records.length, 1, 'record emitted');
-	t.end();
+	assert.strictEqual(records.length, 1, 'record emitted');
+
 });
 
-test('filter: can select by trap type', (t) => {
+test('filter: can select by trap type', () => {
 	const records: Rekording[] = [];
 	const p = create(
 		{ port: 3000 },
@@ -448,12 +448,12 @@ test('filter: can select by trap type', (t) => {
 	p.port;
 	p.port = 9999;
 
-	t.equal(records.length, 1, 'only set record emitted');
-	t.equal(records[0].trap, 'set');
-	t.end();
+	assert.strictEqual(records.length, 1, 'only set record emitted');
+	assert.strictEqual(records[0].trap, 'set');
+
 });
 
-test('filter: composes with only — both must pass', (t) => {
+test('filter: composes with only — both must pass', () => {
 	const records: Rekording[] = [];
 	const p = create(
 		{ port: 3000 },
@@ -467,12 +467,12 @@ test('filter: composes with only — both must pass', (t) => {
 	p.port;
 	p.port = 9999;
 
-	t.equal(records.length, 1, 'only set passes both only and filter');
-	t.equal(records[0].trap, 'set');
-	t.end();
+	assert.strictEqual(records.length, 1, 'only set passes both only and filter');
+	assert.strictEqual(records[0].trap, 'set');
+
 });
 
-test('filter: omitting filter emits all records', (t) => {
+test('filter: omitting filter emits all records', () => {
 	const records: Rekording[] = [];
 	const p = create({ port: 3000 }, { callback: (r) => records.push(r) });
 
@@ -480,14 +480,14 @@ test('filter: omitting filter emits all records', (t) => {
 	p.port = 9999;
 
 	const traps = records.map((r) => r.trap);
-	t.ok(traps.includes('get'), 'get emitted');
-	t.ok(traps.includes('set'), 'set emitted');
-	t.end();
+	assert.ok(traps.includes('get'), 'get emitted');
+	assert.ok(traps.includes('set'), 'set emitted');
+
 });
 
 // ─── Serialisation ────────────────────────────────────────────────────────────
 
-test('proxiable results are serialised as $proxy tags', (t) => {
+test('proxiable results are serialised as $proxy tags', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ obj: { v: 1 } }, { callback: (r) => records.push(r) });
@@ -503,17 +503,17 @@ test('proxiable results are serialised as $proxy tags', (t) => {
 			'key' in r.origin &&
 			r.origin.key === 'obj',
 	);
-	t.ok(rec, 'get record found');
-	t.ok(isProxyTag(rec?.result), 'result is a $proxy tag');
-	t.equal(
+	assert.ok(rec, 'get record found');
+	assert.ok(isProxyTag(rec?.result), 'result is a $proxy tag');
+	assert.strictEqual(
 		typeof (rec?.result as { $proxy: string }).$proxy,
 		'string',
 		'$proxy is a string',
 	);
-	t.end();
+
 });
 
-test('primitive results are inlined in the rekording', (t) => {
+test('primitive results are inlined in the rekording', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ n: 7 }, { callback: (r) => records.push(r) });
@@ -529,12 +529,12 @@ test('primitive results are inlined in the rekording', (t) => {
 			'key' in r.origin &&
 			r.origin.key === 'n',
 	);
-	t.ok(rec, 'get record found');
-	t.equal(rec?.result, 7, 'primitive result is inlined');
-	t.end();
+	assert.ok(rec, 'get record found');
+	assert.strictEqual(rec?.result, 7, 'primitive result is inlined');
+
 });
 
-test('proxy IDs are consistent: result.$proxy matches origin.parent of child records', (t) => {
+test('proxy IDs are consistent: result.$proxy matches origin.parent of child records', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: { b: 1 } }, { callback: (r) => records.push(r) });
@@ -557,19 +557,19 @@ test('proxy IDs are consistent: result.$proxy matches origin.parent of child rec
 			'key' in r.origin &&
 			r.origin.key === 'b',
 	);
-	t.ok(getA && getB, 'both records found');
-	t.ok(isProxyTag(getA?.result), 'getA result is a $proxy tag');
+	assert.ok(getA && getB, 'both records found');
+	assert.ok(isProxyTag(getA?.result), 'getA result is a $proxy tag');
 
 	const aId = (getA?.result as { $proxy: string }).$proxy;
 	const bParent =
 		getB && getB.origin !== null && 'parent' in getB.origin
 			? getB.origin.parent
 			: null;
-	t.equal(aId, bParent, "a's result.$proxy === b's origin.parent");
-	t.end();
+	assert.strictEqual(aId, bParent, "a's result.$proxy === b's origin.parent");
+
 });
 
-test('apply origin.source matches the $proxy ID of the accessed function', (t) => {
+test('apply origin.source matches the $proxy ID of the accessed function', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ fn: () => 'ok' }, { callback: (r) => records.push(r) });
@@ -586,23 +586,23 @@ test('apply origin.source matches the $proxy ID of the accessed function', (t) =
 			r.origin.key === 'fn',
 	);
 	const applyRec = records.find((r) => r.trap === 'apply');
-	t.ok(getFn && applyRec, 'get and apply records found');
-	t.ok(isProxyTag(getFn?.result), 'get result is $proxy-tagged');
+	assert.ok(getFn && applyRec, 'get and apply records found');
+	assert.ok(isProxyTag(getFn?.result), 'get result is $proxy-tagged');
 
 	const fnId = (getFn?.result as { $proxy: string }).$proxy;
 	const applySource =
 		applyRec && applyRec.origin !== null && 'source' in applyRec.origin
 			? applyRec.origin.source
 			: null;
-	t.equal(
+	assert.strictEqual(
 		fnId,
 		applySource,
 		'function proxy ID is consistent across get and apply',
 	);
-	t.end();
+
 });
 
-test('symbol property keys are serialised as strings in records', (t) => {
+test('symbol property keys are serialised as strings in records', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const sym = Symbol('myKey');
@@ -616,106 +616,106 @@ test('symbol property keys are serialised as strings in records', (t) => {
 	const rec = records.find(
 		(r) => r.trap === 'get' && r.origin !== null && 'key' in r.origin,
 	);
-	t.ok(rec, 'get record found');
-	t.equal(
+	assert.ok(rec, 'get record found');
+	assert.strictEqual(
 		typeof (rec?.origin as Improbability).key,
 		'string',
 		'symbol key is serialised as string',
 	);
-	t.end();
+
 });
 
 // ─── Origin & path utilities ──────────────────────────────────────────────────
 
-test('getOrigin returns null for the root proxy', (t) => {
+test('getOrigin returns null for the root proxy', () => {
 	const p = create({ x: 1 }, { callback: () => {} });
 
-	t.equal(getOrigin(p), null, 'root origin is null');
-	t.end();
+	assert.strictEqual(getOrigin(p), null, 'root origin is null');
+
 });
 
-test('getOrigin returns a structured origin for a property-access proxy', (t) => {
+test('getOrigin returns a structured origin for a property-access proxy', () => {
 	const p = create({ a: { v: 1 } }, { callback: () => {} });
 	const a = p.a;
 	const origin = getOrigin(a);
 
-	t.ok(origin !== null, 'origin is not null');
-	t.equal(origin?.trap, 'get');
-	t.ok(origin && 'key' in origin, 'origin has a key field');
-	t.equal(String((origin as { key: string | symbol }).key), 'a');
-	t.end();
+	assert.ok(origin !== null, 'origin is not null');
+	assert.strictEqual(origin?.trap, 'get');
+	assert.ok(origin && 'key' in origin, 'origin has a key field');
+	assert.strictEqual(String((origin as { key: string | symbol }).key), 'a');
+
 });
 
-test('getOrigin for a function-return proxy has trap=apply and a source ID', (t) => {
+test('getOrigin for a function-return proxy has trap=apply and a source ID', () => {
 	const p = create({ fn: () => ({ v: 1 }) }, { callback: () => {} });
 	const result = p.fn();
 	const origin = getOrigin(result);
 
-	t.ok(origin !== null, 'origin is not null');
-	t.equal(origin?.trap, 'apply');
-	t.ok(origin && 'source' in origin, 'origin has a source field');
-	t.equal(
+	assert.ok(origin !== null, 'origin is not null');
+	assert.strictEqual(origin?.trap, 'apply');
+	assert.ok(origin && 'source' in origin, 'origin has a source field');
+	assert.strictEqual(
 		typeof (origin as { source: string }).source,
 		'string',
 		'source is a string proxy ID',
 	);
-	t.end();
+
 });
 
-test('getAncestors returns the full chain root-first', (t) => {
+test('getAncestors returns the full chain root-first', () => {
 	const p = create({ a: { b: { c: 1 } } }, { callback: () => {} });
 	const b = p.a.b;
 	const ancestors = getAncestors(b);
 
-	t.equal(ancestors.length, 3, 'root + a + b = 3 entries');
-	t.equal(ancestors[0].origin, null, 'root entry has null origin');
-	t.equal(
+	assert.strictEqual(ancestors.length, 3, 'root + a + b = 3 entries');
+	assert.strictEqual(ancestors[0].origin, null, 'root entry has null origin');
+	assert.strictEqual(
 		ancestors[1].origin !== null && 'key' in ancestors[1].origin
 			? String((ancestors[1].origin as { key: string | symbol }).key)
 			: null,
 		'a',
 	);
-	t.equal(
+	assert.strictEqual(
 		ancestors[2].origin !== null && 'key' in ancestors[2].origin
 			? String((ancestors[2].origin as { key: string | symbol }).key)
 			: null,
 		'b',
 	);
-	t.end();
+
 });
 
-test('getAncestors returns an empty array for a non-proxy', (t) => {
-	t.deepEqual(getAncestors({ x: 1 }), [], 'plain object returns empty array');
-	t.end();
+test('getAncestors returns an empty array for a non-proxy', () => {
+	assert.deepStrictEqual(getAncestors({ x: 1 }), [], 'plain object returns empty array');
+
 });
 
-test('getPath returns a dotted property path', (t) => {
+test('getPath returns a dotted property path', () => {
 	const p = create({ a: { b: { fn: () => 'x' } } }, { callback: () => {} });
 
-	t.equal(getPath(p.a.b.fn), 'a.b.fn');
-	t.end();
+	assert.strictEqual(getPath(p.a.b.fn), 'a.b.fn');
+
 });
 
-test('getPath annotates a function-return value with ()', (t) => {
+test('getPath annotates a function-return value with ()', () => {
 	const p = create(
 		{ a: { b: { make: () => ({ v: 1 }) } } },
 		{ callback: () => {} },
 	);
 
-	t.equal(getPath(p.a.b.make()), 'a.b.make()');
-	t.end();
+	assert.strictEqual(getPath(p.a.b.make()), 'a.b.make()');
+
 });
 
-test('getPath for the root proxy is an empty string', (t) => {
+test('getPath for the root proxy is an empty string', () => {
 	const p = create({ x: 1 }, { callback: () => {} });
 
-	t.equal(getPath(p), '');
-	t.end();
+	assert.strictEqual(getPath(p), '');
+
 });
 
 // ─── Stream sink ──────────────────────────────────────────────────────────────
 
-test('stream sink: writes valid NDJSON', (t) => {
+test('stream sink: writes valid NDJSON', () => {
 	// arrange
 	const { stream, lines } = makeStream();
 	const p = create({ x: 1, y: 2 }, { stream });
@@ -725,20 +725,20 @@ test('stream sink: writes valid NDJSON', (t) => {
 	p.y;
 
 	// assert
-	t.ok(lines.length >= 2, `at least two lines written (got ${lines.length})`);
+	assert.ok(lines.length >= 2, `at least two lines written (got ${lines.length})`);
 	for (const line of lines) {
-		t.doesNotThrow(() => JSON.parse(line), 'line is valid JSON');
+		assert.doesNotThrow(() => JSON.parse(line), 'line is valid JSON');
 		const rec = JSON.parse(line);
-		t.equal(typeof rec.id, 'string', 'id is a string');
-		t.equal(typeof rec.trap, 'string', 'trap is a string');
-		t.ok('origin' in rec, 'origin field present');
-		t.ok(Array.isArray(rec.args), 'args is an array');
-		t.ok('result' in rec, 'result field present');
+		assert.strictEqual(typeof rec.id, 'string', 'id is a string');
+		assert.strictEqual(typeof rec.trap, 'string', 'trap is a string');
+		assert.ok('origin' in rec, 'origin field present');
+		assert.ok(Array.isArray(rec.args), 'args is an array');
+		assert.ok('result' in rec, 'result field present');
 	}
-	t.end();
+
 });
 
-test('stream sink: every record round-trips through JSON.stringify', (t) => {
+test('stream sink: every record round-trips through JSON.stringify', () => {
 	// arrange
 	const { stream, lines } = makeStream();
 	const p = create({ a: { b: () => ({ v: 1 }) } }, { stream });
@@ -749,15 +749,15 @@ test('stream sink: every record round-trips through JSON.stringify', (t) => {
 	// assert
 	for (const line of lines) {
 		const rec = JSON.parse(line);
-		t.doesNotThrow(
+		assert.doesNotThrow(
 			() => JSON.stringify(rec),
 			`record ${rec.id} is fully serialisable`,
 		);
 	}
-	t.end();
+
 });
 
-test('stream sink: origins contain only string IDs (no live references)', (t) => {
+test('stream sink: origins contain only string IDs (no live references)', () => {
 	// arrange
 	const { stream, lines } = makeStream();
 	const p = create({ a: { b: 1 }, fn: () => 'x' }, { stream });
@@ -770,27 +770,27 @@ test('stream sink: origins contain only string IDs (no live references)', (t) =>
 	for (const line of lines) {
 		const rec = JSON.parse(line);
 		if (rec.origin && 'parent' in rec.origin) {
-			t.equal(
+			assert.strictEqual(
 				typeof rec.origin.parent,
 				'string',
 				'origin.parent is a string ID',
 			);
-			t.equal(typeof rec.origin.key, 'string', 'origin.key is a string');
+			assert.strictEqual(typeof rec.origin.key, 'string', 'origin.key is a string');
 		}
 		if (rec.origin && 'source' in rec.origin) {
-			t.equal(
+			assert.strictEqual(
 				typeof rec.origin.source,
 				'string',
 				'origin.source is a string ID',
 			);
 		}
 	}
-	t.end();
+
 });
 
 // ─── ID option ────────────────────────────────────────────────────────────────
 
-test('id: numeric starting value offsets the sequence', (t) => {
+test('id: numeric starting value offsets the sequence', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ x: 1 }, { callback: (r) => records.push(r), id: 100 });
@@ -799,13 +799,13 @@ test('id: numeric starting value offsets the sequence', (t) => {
 	p.x;
 
 	// assert
-	t.ok(records[0].id.startsWith('#'), 'ID has # prefix');
+	assert.ok(records[0].id.startsWith('#'), 'ID has # prefix');
 	const n = parseInt(records[0].id.slice(1), 10);
-	t.ok(n > 100, 'ID is greater than the starting value');
-	t.end();
+	assert.ok(n > 100, 'ID is greater than the starting value');
+
 });
 
-test('id: custom generator function is used', (t) => {
+test('id: custom generator function is used', () => {
 	// arrange
 	const records: Rekording[] = [];
 	let seq = 0;
@@ -818,13 +818,13 @@ test('id: custom generator function is used', (t) => {
 	p.x;
 
 	// assert
-	t.ok(records[0].id.startsWith('evt-'), 'custom ID format used');
-	t.end();
+	assert.ok(records[0].id.startsWith('evt-'), 'custom ID format used');
+
 });
 
 // ─── defineProperty / getOwnPropertyDescriptor with accessor descriptors ─────
 
-test('defineProperty: getter defined via accessor descriptor is proxied and its calls are recorded', (t) => {
+test('defineProperty: getter defined via accessor descriptor is proxied and its calls are recorded', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const target: Record<string, unknown> = {};
@@ -836,15 +836,15 @@ test('defineProperty: getter defined via accessor descriptor is proxied and its 
 	const result = (p as Improbability).x;
 
 	// assert
-	t.ok(isFlugrekorder(result), 'getter return value is proxied');
-	t.ok(
+	assert.ok(isFlugrekorder(result), 'getter return value is proxied');
+	assert.ok(
 		records.some((r) => r.trap === 'apply'),
 		'calling the getter emits an apply record',
 	);
-	t.end();
+
 });
 
-test('defineProperty: setter defined via accessor descriptor is proxied, incoming value is tracked', (t) => {
+test('defineProperty: setter defined via accessor descriptor is proxied, incoming value is tracked', () => {
 	// arrange
 	const records: Rekording[] = [];
 	let received: unknown;
@@ -862,14 +862,14 @@ test('defineProperty: setter defined via accessor descriptor is proxied, incomin
 	(p as Improbability).x = incoming;
 
 	// assert
-	t.ok(
+	assert.ok(
 		isFlugrekorder(received as object),
 		'value received by setter is proxied',
 	);
-	t.end();
+
 });
 
-test('getOwnPropertyDescriptor: accessor descriptor get/set are proxied in the returned descriptor', (t) => {
+test('getOwnPropertyDescriptor: accessor descriptor get/set are proxied in the returned descriptor', () => {
 	// arrange
 	const target: Record<string, unknown> = {};
 	Object.defineProperty(target, 'x', {
@@ -883,13 +883,13 @@ test('getOwnPropertyDescriptor: accessor descriptor get/set are proxied in the r
 	// biome-ignore lint/style/noNonNullAssertion: descriptor and its accessors must exist — silent undefined would mask a real failure
 	const desc = Object.getOwnPropertyDescriptor(p, 'x')!;
 	// biome-ignore lint/style/noNonNullAssertion: same — asserting get/set are present is the point of the test
-	t.ok(isFlugrekorder(desc.get!), 'get in returned descriptor is proxied');
+	assert.ok(isFlugrekorder(desc.get!), 'get in returned descriptor is proxied');
 	// biome-ignore lint/style/noNonNullAssertion: same
-	t.ok(isFlugrekorder(desc.set!), 'set in returned descriptor is proxied');
-	t.end();
+	assert.ok(isFlugrekorder(desc.set!), 'set in returned descriptor is proxied');
+
 });
 
-test('defineProperty with only flag changes (no value/get/set) passes the descriptor through unchanged', (t) => {
+test('defineProperty with only flag changes (no value/get/set) passes the descriptor through unchanged', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const target = { x: 1 };
@@ -899,43 +899,44 @@ test('defineProperty with only flag changes (no value/get/set) passes the descri
 	Object.defineProperty(p, 'x', { configurable: true, writable: true });
 
 	// assert
-	t.ok(
+	assert.ok(
 		records.some((r) => r.trap === 'defineProperty'),
 		'defineProperty record still emitted',
 	);
-	t.equal(
+	assert.strictEqual(
 		Object.getOwnPropertyDescriptor(target, 'x')?.configurable,
 		true,
 		'flag change applied to target',
 	);
-	t.end();
+
 });
 
-test('getOwnPropertyDescriptor returns undefined for a non-existent property', (t) => {
+test('getOwnPropertyDescriptor returns undefined for a non-existent property', () => {
 	const p = create({ x: 1 }, { callback: () => {} });
 
-	t.equal(
+	assert.strictEqual(
 		Object.getOwnPropertyDescriptor(p, 'nonExistent'),
 		undefined,
 		'non-existent property returns undefined',
 	);
-	t.end();
+
 });
 
-test('getOwnPropertyDescriptor on a property with value undefined returns the descriptor unchanged', (t) => {
+test('getOwnPropertyDescriptor on a property with value undefined returns the descriptor unchanged', () => {
 	const p = create({ x: undefined as unknown }, { callback: () => {} });
 
 	// biome-ignore lint/style/noNonNullAssertion: descriptor must exist — silent undefined would mask a real failure
 	const desc = Object.getOwnPropertyDescriptor(p, 'x')!;
-	t.equal(desc.value, undefined, 'value is undefined');
-	t.notOk(
+	assert.strictEqual(desc.value, undefined, 'value is undefined');
+	assert.strictEqual(
 		isFlugrekorder(desc as Improbability),
+		false,
 		'the descriptor object itself is not a proxy',
 	);
-	t.end();
+
 });
 
-test('create() called with an already-proxied target returns it unchanged', (t) => {
+test('create() called with an already-proxied target returns it unchanged', () => {
 	// arrange
 	const original = { x: 1 };
 	const p1 = create(original, { callback: () => {} });
@@ -943,13 +944,13 @@ test('create() called with an already-proxied target returns it unchanged', (t) 
 	const p2 = create(p1, { callback: (r) => records.push(r) });
 
 	// assert
-	t.equal(p2, p1, 'returns the existing proxy, not a new wrapper');
-	t.end();
+	assert.strictEqual(p2, p1, 'returns the existing proxy, not a new wrapper');
+
 });
 
 // ─── Promise handling ─────────────────────────────────────────────────────────
 
-test('async function: resolved value is proxied', async (t) => {
+test('async function: resolved value is proxied', async () => {
 	// arrange
 	const p = create(
 		{ fetch: async () => ({ id: 1 }) },
@@ -960,24 +961,24 @@ test('async function: resolved value is proxied', async (t) => {
 	const result = await p.fetch();
 
 	// assert
-	t.ok(isFlugrekorder(result), 'resolved value is a proxy');
-	t.equal(
+	assert.ok(isFlugrekorder(result), 'resolved value is a proxy');
+	assert.strictEqual(
 		(result as Improbability).id,
 		1,
 		'resolved value is accessible through the proxy',
 	);
-	t.end();
+
 });
 
-test('async function: resolved primitive is returned as-is', async (t) => {
+test('async function: resolved primitive is returned as-is', async () => {
 	const p = create({ getCount: async () => 42 }, { callback: () => {} });
 	const result = await p.getCount();
 
-	t.equal(result, 42, 'primitive resolved value is returned unchanged');
-	t.end();
+	assert.strictEqual(result, 42, 'primitive resolved value is returned unchanged');
+
 });
 
-test('Promise property: awaiting a proxied Promise resolves correctly', async (t) => {
+test('Promise property: awaiting a proxied Promise resolves correctly', async () => {
 	// arrange
 	const p = create(
 		{ data: Promise.resolve({ name: 'alice' }) },
@@ -988,15 +989,15 @@ test('Promise property: awaiting a proxied Promise resolves correctly', async (t
 	const result = await p.data;
 
 	// assert
-	t.ok(
+	assert.ok(
 		isFlugrekorder(result),
 		'resolved value of a Promise property is proxied',
 	);
-	t.equal((result as Improbability).name, 'alice', 'data is accessible');
-	t.end();
+	assert.strictEqual((result as Improbability).name, 'alice', 'data is accessible');
+
 });
 
-test('Promise stability: the same Promise always resolves to the same proxy', async (t) => {
+test('Promise stability: the same Promise always resolves to the same proxy', async () => {
 	// arrange
 	const inner = { v: 1 };
 	const p = create(
@@ -1008,28 +1009,28 @@ test('Promise stability: the same Promise always resolves to the same proxy', as
 	const [a, b] = await Promise.all([p.a, p.b]);
 
 	// assert
-	t.equal(a, b, 'same resolved object yields the same proxy');
-	t.end();
+	assert.strictEqual(a, b, 'same resolved object yields the same proxy');
+
 });
 
 // ─── getTarget ────────────────────────────────────────────────────────────────
 
-test('getTarget returns the original unwrapped object', (t) => {
+test('getTarget returns the original unwrapped object', () => {
 	const target = { x: 1 };
 	const p = create(target, { callback: () => {} });
 
-	t.equal(getTarget(p), target, 'returns the original target');
-	t.end();
+	assert.strictEqual(getTarget(p), target, 'returns the original target');
+
 });
 
-test('getTarget returns null for a non-proxy', (t) => {
-	t.equal(getTarget({ x: 1 }), null, 'plain object returns null');
-	t.end();
+test('getTarget returns null for a non-proxy', () => {
+	assert.strictEqual(getTarget({ x: 1 }), null, 'plain object returns null');
+
 });
 
 // ─── getProxyById ─────────────────────────────────────────────────────────────
 
-test('getProxyById retrieves a proxy by its recorded ID', (t) => {
+test('getProxyById retrieves a proxy by its recorded ID', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ a: { v: 1 } }, { callback: (r) => records.push(r) });
@@ -1040,36 +1041,36 @@ test('getProxyById retrieves a proxy by its recorded ID', (t) => {
 	// assert
 	const rec = records.find((r) => r.trap === 'get');
 	const id = (rec?.result as { $proxy: string })?.$proxy;
-	t.ok(id, 'a $proxy ID was recorded');
+	assert.ok(id, 'a $proxy ID was recorded');
 	const retrieved = getProxyById(id, p);
-	t.ok(isFlugrekorder(retrieved), 'retrieved value is a proxy');
-	t.equal(retrieved, p.a, 'retrieved proxy is the same instance as p.a');
-	t.end();
+	assert.ok(isFlugrekorder(retrieved), 'retrieved value is a proxy');
+	assert.strictEqual(retrieved, p.a, 'retrieved proxy is the same instance as p.a');
+
 });
 
-test('getProxyById returns undefined for an unknown ID', (t) => {
+test('getProxyById returns undefined for an unknown ID', () => {
 	const p = create({ x: 1 }, { callback: () => {} });
 
-	t.equal(
+	assert.strictEqual(
 		getProxyById('no-such-id', p),
 		undefined,
 		'unknown ID returns undefined',
 	);
-	t.end();
+
 });
 
 // ─── getPath ──────────────────────────────────────────────────────────────────
 
-test('getPath on a directly-called root function produces ()', (t) => {
+test('getPath on a directly-called root function produces ()', () => {
 	const fn = create(() => ({ v: 1 }), { callback: () => {} });
 	const result = fn();
 
-	t.equal(
+	assert.strictEqual(
 		getPath(result),
 		'()',
 		'root call site with no preceding property access',
 	);
-	t.end();
+
 });
 
 // ─── native objects with internal slots ──────────────────────────────────────
@@ -1095,7 +1096,7 @@ function appliesFor(records: Rekording[], method: string): Rekording[] {
 	);
 }
 
-test('native objects with internal slots', (t) => {
+test('native objects with internal slots', () => {
 	each`
 	message        | input                       | access                         | expect
 	-------------- | --------------------------- | ------------------------------ | -------
@@ -1108,97 +1109,81 @@ test('native objects with internal slots', (t) => {
 	`(({ message, input, access, expect }: Improbability) => {
 		const p = create(input, { callback: () => {} });
 
-		t.doesNotThrow(() => t.equal(access(p), expect, message), message);
+		assert.strictEqual(access(p), expect, message);
 	});
 
-	t.end();
+
 });
 
-test('Map: set/get/delete of an object value are recorded', (t) => {
+test('Map: set/get/delete of an object value are recorded', () => {
 	const records: Rekording[] = [];
 	const obj = { id: 1 };
 	const p = create(new Map<string, typeof obj>(), {
 		callback: (r) => records.push(r),
 	});
 
-	let retrieved: typeof obj | undefined;
-	let deleted: boolean | undefined;
-	try {
-		p.set('k', obj);
-		retrieved = p.get('k');
-		deleted = p.delete('k');
-	} catch (e) {
-		t.fail(`slot check threw: ${e}`);
-		t.end();
-		return;
-	}
+	p.set('k', obj);
+	const retrieved = p.get('k');
+	const deleted = p.delete('k');
 
 	const [setRec] = appliesFor(records, 'set');
-	t.ok(setRec, 'set call recorded');
-	t.equal((setRec?.args[2] as Improbability)[0], 'k', 'set key in args');
-	t.ok(isProxyTag(setRec?.result), 'set returns the Map as proxy');
+	assert.ok(setRec, 'set call recorded');
+	assert.strictEqual((setRec?.args[2] as Improbability)[0], 'k', 'set key in args');
+	assert.ok(isProxyTag(setRec?.result), 'set returns the Map as proxy');
 
 	const [getRec] = appliesFor(records, 'get');
-	t.ok(getRec, 'get call recorded');
-	t.equal((getRec?.args[2] as Improbability)[0], 'k', 'get key in args');
-	t.ok(
+	assert.ok(getRec, 'get call recorded');
+	assert.strictEqual((getRec?.args[2] as Improbability)[0], 'k', 'get key in args');
+	assert.ok(
 		isProxyTag(getRec?.result),
 		'get result is the stored object (proxied)',
 	);
-	t.ok(isFlugrekorder(retrieved as object), 'retrieved value is a proxy');
+	assert.ok(isFlugrekorder(retrieved as object), 'retrieved value is a proxy');
 
 	const [deleteRec] = appliesFor(records, 'delete');
-	t.ok(deleteRec, 'delete call recorded');
-	t.equal(
+	assert.ok(deleteRec, 'delete call recorded');
+	assert.strictEqual(
 		(deleteRec?.args[2] as Improbability)[0],
 		'k',
 		'delete key in args',
 	);
-	t.equal(deleteRec?.result, true, 'delete result recorded as true');
-	t.equal(deleted, true, 'delete return value is true');
+	assert.strictEqual(deleteRec?.result, true, 'delete result recorded as true');
+	assert.strictEqual(deleted, true, 'delete return value is true');
 
-	t.end();
+
 });
 
-test('Set: add/has/delete of an object are recorded', (t) => {
+test('Set: add/has/delete of an object are recorded', () => {
 	const records: Rekording[] = [];
 	const obj = { id: 1 };
 	const p = create(new Set<typeof obj>(), {
 		callback: (r) => records.push(r),
 	});
 
-	let before: boolean | undefined;
-	let after: boolean | undefined;
-	try {
-		p.add(obj);
-		before = p.has(obj);
-		p.delete(obj);
-		after = p.has(obj);
-	} catch (e) {
-		t.fail(`slot check threw: ${e}`);
-		t.end();
-		return;
-	}
+	p.add(obj);
+	const before = p.has(obj);
+	p.delete(obj);
+	const after = p.has(obj);
 
 	const [addRec] = appliesFor(records, 'add');
-	t.ok(addRec, 'add call recorded');
-	t.ok(isProxyTag(addRec?.result), 'add returns the Set as proxy');
+	assert.ok(addRec, 'add call recorded');
+	assert.ok(isProxyTag(addRec?.result), 'add returns the Set as proxy');
 
 	const hasRecs = appliesFor(records, 'has');
-	t.equal(hasRecs.length, 2, 'has called twice — both recorded');
-	t.equal(hasRecs[0]?.result, true, 'first has: true (after add)');
-	t.equal(hasRecs[1]?.result, false, 'second has: false (after delete)');
-	t.equal(before, true, 'has return value correct before delete');
-	t.equal(after, false, 'has return value correct after delete');
+	assert.strictEqual(hasRecs.length, 2, 'has called twice — both recorded');
+	assert.strictEqual(hasRecs[0]?.result, true, 'first has: true (after add)');
+	assert.strictEqual(hasRecs[1]?.result, false, 'second has: false (after delete)');
+	assert.strictEqual(before, true, 'has return value correct before delete');
+	assert.strictEqual(after, false, 'has return value correct after delete');
 
 	const [deleteRec] = appliesFor(records, 'delete');
-	t.ok(deleteRec, 'delete call recorded');
-	t.equal(deleteRec?.result, true, 'delete result recorded as true');
+	assert.ok(deleteRec, 'delete call recorded');
+	assert.strictEqual(deleteRec?.result, true, 'delete result recorded as true');
 
-	t.end();
+
 });
 
-test('WeakMap: set/get/delete of an object value are recorded', (t) => {
+test('WeakMap: set/get/delete of an object value are recorded', () => {
 	const records: Rekording[] = [];
 	const key = { id: 'key' };
 	const value = { data: 42 };
@@ -1206,85 +1191,69 @@ test('WeakMap: set/get/delete of an object value are recorded', (t) => {
 		callback: (r) => records.push(r),
 	});
 
-	let retrieved: typeof value | undefined;
-	let deleted: boolean | undefined;
-	try {
-		p.set(key, value);
-		retrieved = p.get(key);
-		deleted = p.delete(key);
-	} catch (e) {
-		t.fail(`slot check threw: ${e}`);
-		t.end();
-		return;
-	}
+	p.set(key, value);
+	const retrieved = p.get(key);
+	const deleted = p.delete(key);
 
 	const [setRec] = appliesFor(records, 'set');
-	t.ok(setRec, 'set call recorded');
-	t.ok((setRec?.args[2] as Improbability)[0], 'key arg present in recording');
-	t.ok(isProxyTag(setRec?.result), 'set returns the WeakMap as proxy');
+	assert.ok(setRec, 'set call recorded');
+	assert.ok((setRec?.args[2] as Improbability)[0], 'key arg present in recording');
+	assert.ok(isProxyTag(setRec?.result), 'set returns the WeakMap as proxy');
 
 	const [getRec] = appliesFor(records, 'get');
-	t.ok(getRec, 'get call recorded');
-	t.ok(
+	assert.ok(getRec, 'get call recorded');
+	assert.ok(
 		isProxyTag(getRec?.result),
 		'get result is the stored value (proxied)',
 	);
-	t.ok(isFlugrekorder(retrieved as object), 'retrieved value is a proxy');
-	t.equal(
+	assert.ok(isFlugrekorder(retrieved as object), 'retrieved value is a proxy');
+	assert.strictEqual(
 		(retrieved as typeof value)?.data,
 		42,
 		'retrieved value is correct',
 	);
 
 	const [deleteRec] = appliesFor(records, 'delete');
-	t.ok(deleteRec, 'delete call recorded');
-	t.equal(deleteRec?.result, true, 'delete result recorded as true');
-	t.equal(deleted, true, 'delete return value is true');
+	assert.ok(deleteRec, 'delete call recorded');
+	assert.strictEqual(deleteRec?.result, true, 'delete result recorded as true');
+	assert.strictEqual(deleted, true, 'delete return value is true');
 
-	t.end();
+
 });
 
-test('WeakSet: add/has/delete of an object are recorded', (t) => {
+test('WeakSet: add/has/delete of an object are recorded', () => {
 	const records: Rekording[] = [];
 	const obj = { id: 1 };
 	const p = create(new WeakSet<typeof obj>(), {
 		callback: (r) => records.push(r),
 	});
 
-	let before: boolean | undefined;
-	let after: boolean | undefined;
-	try {
-		p.add(obj);
-		before = p.has(obj);
-		p.delete(obj);
-		after = p.has(obj);
-	} catch (e) {
-		t.fail(`slot check threw: ${e}`);
-		t.end();
-		return;
-	}
+	p.add(obj);
+	const before = p.has(obj);
+	p.delete(obj);
+	const after = p.has(obj);
 
 	const [addRec] = appliesFor(records, 'add');
-	t.ok(addRec, 'add call recorded');
-	t.ok(isProxyTag(addRec?.result), 'add returns the WeakSet as proxy');
+	assert.ok(addRec, 'add call recorded');
+	assert.ok(isProxyTag(addRec?.result), 'add returns the WeakSet as proxy');
 
 	const hasRecs = appliesFor(records, 'has');
-	t.equal(hasRecs.length, 2, 'has called twice — both recorded');
-	t.equal(hasRecs[0]?.result, true, 'first has: true (after add)');
-	t.equal(hasRecs[1]?.result, false, 'second has: false (after delete)');
-	t.equal(before, true, 'has return value correct before delete');
-	t.equal(after, false, 'has return value correct after delete');
+	assert.strictEqual(hasRecs.length, 2, 'has called twice — both recorded');
+	assert.strictEqual(hasRecs[0]?.result, true, 'first has: true (after add)');
+	assert.strictEqual(hasRecs[1]?.result, false, 'second has: false (after delete)');
+	assert.strictEqual(before, true, 'has return value correct before delete');
+	assert.strictEqual(after, false, 'has return value correct after delete');
 
 	const [deleteRec] = appliesFor(records, 'delete');
-	t.ok(deleteRec, 'delete call recorded');
-	t.equal(deleteRec?.result, true, 'delete result recorded as true');
+	assert.ok(deleteRec, 'delete call recorded');
+	assert.strictEqual(deleteRec?.result, true, 'delete result recorded as true');
 
-	t.end();
+
 });
 
 // ─── Timestamp ────────────────────────────────────────────────────────────────
 
-test('every rekording has a numeric timestamp', (t) => {
+test('every rekording has a numeric timestamp', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create({ x: 1 }, { callback: (r) => records.push(r) });
@@ -1293,11 +1262,11 @@ test('every rekording has a numeric timestamp', (t) => {
 	p.x;
 
 	// assert
-	t.equal(typeof records[0].timestamp, 'number', 'timestamp is a number');
-	t.end();
+	assert.strictEqual(typeof records[0].timestamp, 'number', 'timestamp is a number');
+
 });
 
-test('timestamps are monotonically non-decreasing across sequential traps', (t) => {
+test('timestamps are monotonically non-decreasing across sequential traps', () => {
 	// arrange
 	const records: Rekording[] = [];
 	const p = create(
@@ -1312,15 +1281,15 @@ test('timestamps are monotonically non-decreasing across sequential traps', (t) 
 
 	// assert
 	for (let i = 1; i < records.length; i++) {
-		t.ok(
+		assert.ok(
 			records[i].timestamp >= records[i - 1].timestamp,
 			`record ${i} timestamp >= record ${i - 1} timestamp`,
 		);
 	}
-	t.end();
+
 });
 
-test('stream sink: timestamp is present and numeric in NDJSON output', (t) => {
+test('stream sink: timestamp is present and numeric in NDJSON output', () => {
 	// arrange
 	const { stream, lines } = makeStream();
 	const p = create({ x: 1 }, { stream });
@@ -1330,87 +1299,89 @@ test('stream sink: timestamp is present and numeric in NDJSON output', (t) => {
 
 	// assert
 	const rec = JSON.parse(lines[0]);
-	t.equal(typeof rec.timestamp, 'number', 'timestamp is a number in NDJSON');
-	t.end();
+	assert.strictEqual(typeof rec.timestamp, 'number', 'timestamp is a number in NDJSON');
+
 });
 
 // ─── C++ binding boundary ─────────────────────────────────────────────────────
 
-test('wrapping http.Server and completing a full request lifecycle does not crash', (t) => {
+test('wrapping http.Server and completing a full request lifecycle does not crash', async () => {
 	// Before the fix, wrapping an http.Server caused a fatal V8 abort:
 	// GetAlignedPointerFromInternalField on a Proxy has no internal fields.
 	// This test would have reproduced that crash.
-	t.plan(1);
 	const raw = createServer((_req, res) => res.end('ok'));
 	const server = create(raw, { only: ['apply'], callback: () => {} });
 
-	server.listen(0, () => {
-		const { port } = raw.address() as { port: number };
-		fetch(`http://127.0.0.1:${port}/`).then(() => {
-			server.close(() => {
-				t.pass('request lifecycle completed without a native crash');
-				t.end();
+	await new Promise<void>((resolve) => {
+		server.listen(0, () => {
+			const { port } = raw.address() as { port: number };
+			fetch(`http://127.0.0.1:${port}/`).then(() => {
+				server.close(() => resolve());
 			});
 		});
 	});
 });
 
-test('C++ binding objects returned via get are not proxied', (t) => {
+test('C++ binding objects returned via get are not proxied', async () => {
 	// The isECMABuiltin guard lets Map/Set/Date be proxied safely but returns
 	// C++ binding objects (TCP handles, ConnectionsList, …) unwrapped. If they
 	// were proxied, passing them to native code would crash V8 fatally.
-	t.plan(2);
 	const raw = createServer();
 
-	raw.listen(0, () => {
-		const server = create(raw, { callback: () => {} });
-		const handle = (server as Improbability)._handle;
+	await new Promise<void>((resolve) => {
+		raw.listen(0, () => {
+			const server = create(raw, { callback: () => {} });
+			const handle = (server as Improbability)._handle;
 
-		t.ok(handle != null, 'server has a handle after listening');
-		t.equal(isFlugrekorder(handle), false, 'TCP handle is not a flugrekorder proxy');
+			assert.ok(handle != null, 'server has a handle after listening');
+			assert.strictEqual(isFlugrekorder(handle), false, 'TCP handle is not a flugrekorder proxy');
 
-		raw.close(() => t.end());
+			raw.close(() => resolve());
+		});
 	});
 });
 
-test('defineProperty: C++ binding values in descriptors are not wrapped', (t) => {
+test('defineProperty: C++ binding values in descriptors are not wrapped', async () => {
 	// Covers the !isECMABuiltin branch in defineProperty.pre.
 	// When listen() runs with `this = serverProxy`, Node.js assigns this._handle = new TCP()
 	// which routes through Reflect.set(rawServer, '_handle', tcpHandle, serverProxy) →
 	// defineProperty trap with descriptor.value = tcpHandle (a C++ binding).
-	t.plan(1);
 	const raw = createServer((_req, res) => res.end('ok'));
 	const server = create(raw, { callback: () => {} });
 
-	server.listen(0, () => {
-		t.equal(
-			isFlugrekorder((server as Improbability)._handle),
-			false,
-			'TCP handle stored via defineProperty is not proxied',
-		);
-		server.close(() => t.end());
+	await new Promise<void>((resolve) => {
+		server.listen(0, () => {
+			assert.strictEqual(
+				isFlugrekorder((server as Improbability)._handle),
+				false,
+				'TCP handle stored via defineProperty is not proxied',
+			);
+			server.close(() => resolve());
+		});
 	});
 });
 
-test('getOwnPropertyDescriptor: C++ binding values in returned descriptors are not wrapped', (t) => {
+test('getOwnPropertyDescriptor: C++ binding values in returned descriptors are not wrapped', async () => {
 	// Covers the !isECMABuiltin branch in getOwnPropertyDescriptor.post.
-	t.plan(2);
 	const raw = createServer();
-	raw.listen(0, () => {
-		const server = create(raw, { callback: () => {} });
-		const desc = Object.getOwnPropertyDescriptor(server as Improbability, '_handle');
 
-		t.ok(desc?.value != null, 'descriptor has a value after listening');
-		t.equal(
-			isFlugrekorder(desc?.value),
-			false,
-			'TCP handle in descriptor is not proxied',
-		);
-		raw.close(() => t.end());
+	await new Promise<void>((resolve) => {
+		raw.listen(0, () => {
+			const server = create(raw, { callback: () => {} });
+			const desc = Object.getOwnPropertyDescriptor(server as Improbability, '_handle');
+
+			assert.ok(desc?.value != null, 'descriptor has a value after listening');
+			assert.strictEqual(
+				isFlugrekorder(desc?.value),
+				false,
+				'TCP handle in descriptor is not proxied',
+			);
+			raw.close(() => resolve());
+		});
 	});
 });
 
-test('apply:native is emitted when a function throws "Illegal invocation" and retries with real this', (t) => {
+test('apply:native is emitted when a function throws "Illegal invocation" and retries with real this', () => {
 	// A WeakSet keyed by the real object: a Proxy has distinct identity from its
 	// target, so has(proxy) returns false while has(realTarget) returns true.
 	// This mirrors a C++ native method that checks its internal slot against the
@@ -1427,22 +1398,20 @@ test('apply:native is emitted when a function throws "Illegal invocation" and re
 
 	const p = create(obj as Improbability, { callback: (r) => records.push(r) });
 
-	let result: unknown;
-	t.doesNotThrow(() => {
-		result = (p as Improbability).nativeLike();
-	}, 'does not re-throw — retried with real this');
-	t.equal(result, 'ok', 'correct return value from the retry');
+	// if the retry mechanism fails, nativeLike() throws — node:test catches it
+	const result = (p as Improbability).nativeLike();
+	assert.strictEqual(result, 'ok', 'correct return value from the retry');
 
 	const nativeRec = records.find((r) => r.trap === 'apply:native');
-	t.ok(nativeRec, 'apply:native record emitted');
+	assert.ok(nativeRec, 'apply:native record emitted');
 
 	const isUnwrapTag = (v: unknown): v is { $unwrap: { $proxy: string } } =>
 		typeof v === 'object' && v !== null && !Array.isArray(v) && '$unwrap' in (v as object);
 
-	t.ok(
+	assert.ok(
 		isUnwrapTag(nativeRec?.args[1]),
 		'raw target (real this) serialized as $unwrap in args',
 	);
 
-	t.end();
+
 });

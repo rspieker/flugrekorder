@@ -1,11 +1,12 @@
-import test from 'tape';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { each } from 'template-literal-each';
 import { isProxiable } from './types';
 
 // biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
 type Improbability = any;
 
-test('isProxiable: returns true for proxiable values', (t) => {
+test('isProxiable: returns true for proxiable values', () => {
 	each<{ value: Improbability; label: string }>`
 		value                               | label
 		${{}}                               | plain object
@@ -46,13 +47,11 @@ test('isProxiable: returns true for proxiable values', (t) => {
 		${class {}}                         | anonymous class
 		${class Q {}}                       | named class
 	`(({ value, label }: Improbability) => {
-		t.ok(isProxiable(value), label);
+		assert.ok(isProxiable(value), label);
 	});
-
-	t.end();
 });
 
-test('isProxiable: returns false for non-proxiable values', (t) => {
+test('isProxiable: returns false for non-proxiable values', () => {
 	each<{ value: Improbability; label: string }>`
 		value         | label
 		${null}       | null — typeof null === "object" but Proxy rejects it
@@ -65,8 +64,6 @@ test('isProxiable: returns false for non-proxiable values', (t) => {
 		${42n}        | bigint
 		${BigInt(42)} | deceptively similar to the boxed string/number/booleans
 	`(({ value, label }: Improbability) => {
-		t.notOk(isProxiable(value), label);
+		assert.strictEqual(isProxiable(value), false, label);
 	});
-
-	t.end();
 });

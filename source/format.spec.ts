@@ -1,4 +1,5 @@
-import test from 'tape';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { each } from 'template-literal-each';
 import { create, format } from './flugrekorder';
 
@@ -23,7 +24,7 @@ function record(fn: (proxy: Improbability) => void) {
 
 // ─── Returns a non-empty string for every trap type ───────────────────────────
 
-test('format: returns a non-empty string for every trap type without throwing', (t) => {
+test('format: returns a non-empty string for every trap type without throwing', () => {
 	const { records, proxy } = record((p) => {
 		p.port;
 		p.port = 9999;
@@ -44,20 +45,18 @@ test('format: returns a non-empty string for every trap type without throwing', 
 	getOwnPropertyDescriptor   | ${records.find((r: Improbability) => r.trap === 'getOwnPropertyDescriptor')}
 	has                        | ${records.find((r: Improbability) => r.trap === 'has')}
 	`(({ trap, record: r }: Improbability) => {
-		t.ok(r, `${trap} record exists`);
-		t.doesNotThrow(() => format(r, proxy), `${trap} does not throw`);
-		t.ok(
+		assert.ok(r, `${trap} record exists`);
+		assert.doesNotThrow(() => format(r, proxy), `${trap} does not throw`);
+		assert.ok(
 			format(r, proxy).length > 0,
 			`${trap} produces a non-empty string`,
 		);
 	});
-
-	t.end();
 });
 
 // ─── Trap-specific formats ─────────────────────────────────────────────────────
 
-test('format: set trap → "<path> = <value>"', (t) => {
+test('format: set trap → "<path> = <value>"', () => {
 	const { records, proxy } = record((p) => {
 		p.port = 9999;
 	});
@@ -65,11 +64,10 @@ test('format: set trap → "<path> = <value>"', (t) => {
 		(r: Improbability) => r.trap === 'set',
 	);
 
-	t.equal(format(r, proxy), 'port = 9999');
-	t.end();
+	assert.strictEqual(format(r, proxy), 'port = 9999');
 });
 
-test('format: get trap → "<path> → <value>"', (t) => {
+test('format: get trap → "<path> → <value>"', () => {
 	const { records, proxy } = record((p) => {
 		p.port;
 	});
@@ -77,11 +75,10 @@ test('format: get trap → "<path> → <value>"', (t) => {
 		(r: Improbability) => r.trap === 'get',
 	);
 
-	t.equal(format(r, proxy), 'port → 5432');
-	t.end();
+	assert.strictEqual(format(r, proxy), 'port → 5432');
 });
 
-test('format: apply trap → "<path>(<args>)"', (t) => {
+test('format: apply trap → "<path>(<args>)"', () => {
 	const { records, proxy } = record((p) => {
 		p.find({ active: true });
 	});
@@ -89,11 +86,10 @@ test('format: apply trap → "<path>(<args>)"', (t) => {
 		(r: Improbability) => r.trap === 'apply',
 	);
 
-	t.equal(format(r, proxy), 'find({"active":true})');
-	t.end();
+	assert.strictEqual(format(r, proxy), 'find({"active":true})');
 });
 
-test('format: construct trap → "new <path>(<args>)"', (t) => {
+test('format: construct trap → "new <path>(<args>)"', () => {
 	const { records, proxy } = record((p) => {
 		new (p.find as Improbability)(1, 2);
 	});
@@ -101,13 +97,12 @@ test('format: construct trap → "new <path>(<args>)"', (t) => {
 		(r: Improbability) => r.trap === 'construct',
 	);
 
-	t.equal(format(r, proxy), 'new find(1, 2)');
-	t.end();
+	assert.strictEqual(format(r, proxy), 'new find(1, 2)');
 });
 
 // ─── Proxy resolution ─────────────────────────────────────────────────────────
 
-test('format: $proxy-tagged args resolve to paths when proxy is supplied', (t) => {
+test('format: $proxy-tagged args resolve to paths when proxy is supplied', () => {
 	const records: Improbability[] = [];
 	const target = { a: { value: 1 }, fn: (x: unknown) => x };
 	const proxy = create(target, { callback: (r) => records.push(r) });
@@ -117,12 +112,11 @@ test('format: $proxy-tagged args resolve to paths when proxy is supplied', (t) =
 	const apply: Improbability = records.find(
 		(r: Improbability) => r.trap === 'apply',
 	);
-	t.ok(apply, 'apply record exists');
-	t.equal(format(apply, proxy), 'fn(a)');
-	t.end();
+	assert.ok(apply, 'apply record exists');
+	assert.strictEqual(format(apply, proxy), 'fn(a)');
 });
 
-test('format: without proxy, $proxy tags show raw IDs', (t) => {
+test('format: without proxy, $proxy tags show raw IDs', () => {
 	const records: Improbability[] = [];
 	const target = { a: { value: 1 }, fn: (x: unknown) => x };
 	const proxy = create(target, { callback: (r) => records.push(r) });
@@ -132,17 +126,16 @@ test('format: without proxy, $proxy tags show raw IDs', (t) => {
 	const apply: Improbability = records.find(
 		(r: Improbability) => r.trap === 'apply',
 	);
-	t.ok(apply, 'apply record exists');
+	assert.ok(apply, 'apply record exists');
 
 	const result = format(apply);
-	t.ok(result.includes('('), 'still formats as a call');
-	t.notOk(result.includes('a'), 'path not resolved without proxy');
-	t.end();
+	assert.ok(result.includes('('), 'still formats as a call');
+	assert.strictEqual(result.includes('a'), false, 'path not resolved without proxy');
 });
 
 // ─── Fallback ─────────────────────────────────────────────────────────────────
 
-test('format: fallback → "<trap> on <id>" for traps with null origin', (t) => {
+test('format: fallback → "<trap> on <id>" for traps with null origin', () => {
 	const { records, proxy } = record((p) => {
 		'port' in p;
 	});
@@ -150,9 +143,8 @@ test('format: fallback → "<trap> on <id>" for traps with null origin', (t) => 
 		(r: Improbability) => r.trap === 'has',
 	);
 
-	t.ok(
+	assert.ok(
 		format(r, proxy).startsWith('has on'),
 		'fallback format for null-origin trap',
 	);
-	t.end();
 });

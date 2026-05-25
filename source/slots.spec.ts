@@ -1,4 +1,5 @@
-import test from 'tape';
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import { boundMethod, hasInternalSlots } from './slots';
 
 // ─── hasInternalSlots: probe trap handlers ────────────────────────────────────
@@ -8,7 +9,7 @@ import { boundMethod, hasInternalSlots } from './slots';
 // the original target during probing. These traps are unreachable through the
 // integration layer: no real-world proxied target has a getter that does this.
 
-test('hasInternalSlots: probe set trap prevents mutation of the original during probing', (t) => {
+test('hasInternalSlots: probe set trap prevents mutation of the original during probing', () => {
 	class Target {
 		get x() {
 			(this as unknown as Record<string, unknown>).side = true;
@@ -18,20 +19,19 @@ test('hasInternalSlots: probe set trap prevents mutation of the original during 
 	const obj = new Target();
 	const result = hasInternalSlots(obj);
 
-	t.equal(
+	assert.strictEqual(
 		result,
 		false,
 		'getter that does not throw a slot TypeError → false',
 	);
-	t.equal(
+	assert.strictEqual(
 		(obj as unknown as Record<string, unknown>).side,
 		undefined,
 		'set trap blocks getter from mutating the original',
 	);
-	t.end();
 });
 
-test('hasInternalSlots: probe defineProperty trap prevents mutation of the original during probing', (t) => {
+test('hasInternalSlots: probe defineProperty trap prevents mutation of the original during probing', () => {
 	class Target {
 		get x() {
 			Object.defineProperty(this, 'side', { value: true });
@@ -41,20 +41,19 @@ test('hasInternalSlots: probe defineProperty trap prevents mutation of the origi
 	const obj = new Target();
 	const result = hasInternalSlots(obj);
 
-	t.equal(
+	assert.strictEqual(
 		result,
 		false,
 		'getter that does not throw a slot TypeError → false',
 	);
-	t.equal(
+	assert.strictEqual(
 		Object.getOwnPropertyDescriptor(obj, 'side'),
 		undefined,
 		'defineProperty trap blocks mutation of the original',
 	);
-	t.end();
 });
 
-test('hasInternalSlots: probe deleteProperty trap prevents mutation of the original during probing', (t) => {
+test('hasInternalSlots: probe deleteProperty trap prevents mutation of the original during probing', () => {
 	class Target {
 		side = true;
 		get x() {
@@ -65,20 +64,19 @@ test('hasInternalSlots: probe deleteProperty trap prevents mutation of the origi
 	const obj = new Target();
 	const result = hasInternalSlots(obj);
 
-	t.equal(
+	assert.strictEqual(
 		result,
 		false,
 		'getter that does not throw a slot TypeError → false',
 	);
-	t.equal(
+	assert.strictEqual(
 		obj.side,
 		true,
 		'deleteProperty trap blocks deletion from the original',
 	);
-	t.end();
 });
 
-test('hasInternalSlots: probe setPrototypeOf trap prevents prototype mutation of the original during probing', (t) => {
+test('hasInternalSlots: probe setPrototypeOf trap prevents prototype mutation of the original during probing', () => {
 	class Target {
 		get x() {
 			Object.setPrototypeOf(this, null);
@@ -89,32 +87,30 @@ test('hasInternalSlots: probe setPrototypeOf trap prevents prototype mutation of
 	const originalProto = Object.getPrototypeOf(obj);
 	const result = hasInternalSlots(obj);
 
-	t.equal(
+	assert.strictEqual(
 		result,
 		false,
 		'getter that does not throw a slot TypeError → false',
 	);
-	t.equal(
+	assert.strictEqual(
 		Object.getPrototypeOf(obj),
 		originalProto,
 		'setPrototypeOf trap blocks prototype change on the original',
 	);
-	t.end();
 });
 
 // ─── boundMethod ──────────────────────────────────────────────────────────────
 
-test('boundMethod: returns the same function instance on repeated calls', (t) => {
+test('boundMethod: returns the same function instance on repeated calls', () => {
 	const target = {};
 	const fn = () => {};
 	const first = boundMethod(target, 'key', fn);
 	const second = boundMethod(target, 'key', fn);
 
-	t.equal(first, second, 'same instance returned from cache on second call');
-	t.end();
+	assert.strictEqual(first, second, 'same instance returned from cache on second call');
 });
 
-test('boundMethod: binds fn to the target as its this', (t) => {
+test('boundMethod: binds fn to the target as its this', () => {
 	let captured: unknown;
 	function fn(this: unknown) {
 		captured = this;
@@ -123,6 +119,5 @@ test('boundMethod: binds fn to the target as its this', (t) => {
 	const bound = boundMethod(target, 'key', fn);
 	(bound as () => void)();
 
-	t.equal(captured, target, 'this inside bound call is the original target');
-	t.end();
+	assert.strictEqual(captured, target, 'this inside bound call is the original target');
 });

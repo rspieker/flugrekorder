@@ -1,4 +1,5 @@
-import test from "tape";
+import { test } from 'node:test';
+import assert from 'node:assert/strict';
 import type { SerialConfig } from "./serialize";
 import { Graph } from "./graph";
 import { defaults, serialize } from "./serialize";
@@ -9,8 +10,7 @@ function cfg(overrides: Partial<SerialConfig>): SerialConfig {
 
 // ─── maxDepth ─────────────────────────────────────────────────────────────────
 
-test('maxDepth: nested objects beyond the limit are replaced with "[…]"', (t) => {
-	// arrange
+test('maxDepth: nested objects beyond the limit are replaced with "[…]"', () => {
 	const result = serialize(
 		{ a: { b: "deep" } },
 		new Graph(0),
@@ -18,14 +18,10 @@ test('maxDepth: nested objects beyond the limit are replaced with "[…]"', (t) 
 		cfg({ maxDepth: 1 }),
 	) as Record<string, unknown>;
 
-	// act
-	// assert
-	t.equal(result.a, "[…]");
-	t.end();
+	assert.strictEqual(result.a, "[…]");
 });
 
-test("maxDepth: values within the limit are serialized normally", (t) => {
-	// arrange
+test("maxDepth: values within the limit are serialized normally", () => {
 	const result = serialize(
 		{ a: { b: "hi" } },
 		new Graph(0),
@@ -33,16 +29,12 @@ test("maxDepth: values within the limit are serialized normally", (t) => {
 		cfg({ maxDepth: 2 }),
 	) as Record<string, unknown>;
 
-	// act
-	// assert
-	t.equal((result.a as Record<string, unknown>)?.b, "hi");
-	t.end();
+	assert.strictEqual((result.a as Record<string, unknown>)?.b, "hi");
 });
 
 // ─── redact ───────────────────────────────────────────────────────────────────
 
-test('redact: returning true replaces the value with "[redacted]"', (t) => {
-	// arrange
+test('redact: returning true replaces the value with "[redacted]"', () => {
 	const result = serialize(
 		{ password: "secret", user: "alice" },
 		new Graph(0),
@@ -50,15 +42,11 @@ test('redact: returning true replaces the value with "[redacted]"', (t) => {
 		cfg({ redactors: [(key) => key === "password"] }),
 	) as Record<string, unknown>;
 
-	// act
-	// assert
-	t.equal(result.password, "[redacted]");
-	t.equal(result.user, "alice");
-	t.end();
+	assert.strictEqual(result.password, "[redacted]");
+	assert.strictEqual(result.user, "alice");
 });
 
-test("redact: returning a string uses it as the replacement", (t) => {
-	// arrange
+test("redact: returning a string uses it as the replacement", () => {
 	const result = serialize(
 		{ token: "abc123" },
 		new Graph(0),
@@ -70,14 +58,10 @@ test("redact: returning a string uses it as the replacement", (t) => {
 		}),
 	) as Record<string, unknown>;
 
-	// act
-	// assert
-	t.equal(result.token, "[redacted:token]");
-	t.end();
+	assert.strictEqual(result.token, "[redacted:token]");
 });
 
-test("redact: returning null drops the key entirely", (t) => {
-	// arrange
+test("redact: returning null drops the key entirely", () => {
 	const result = serialize(
 		{ internal: "data", visible: "yes" },
 		new Graph(0),
@@ -85,15 +69,11 @@ test("redact: returning null drops the key entirely", (t) => {
 		cfg({ redactors: [(key) => (key === "internal" ? null : false)] }),
 	) as Record<string, unknown>;
 
-	// act
-	// assert
-	t.notOk("internal" in result);
-	t.equal(result.visible, "yes");
-	t.end();
+	assert.strictEqual("internal" in result, false);
+	assert.strictEqual(result.visible, "yes");
 });
 
-test("redact: multiple redactors — first non-false result wins", (t) => {
-	// arrange
+test("redact: multiple redactors — first non-false result wins", () => {
 	const result = serialize(
 		{ password: "secret", token: "abc", user: "alice" },
 		new Graph(0),
@@ -106,16 +86,12 @@ test("redact: multiple redactors — first non-false result wins", (t) => {
 		}),
 	) as Record<string, unknown>;
 
-	// act
-	// assert
-	t.equal(result.password, "[redacted:password]");
-	t.equal(result.token, "[redacted:token]");
-	t.equal(result.user, "alice");
-	t.end();
+	assert.strictEqual(result.password, "[redacted:password]");
+	assert.strictEqual(result.token, "[redacted:token]");
+	assert.strictEqual(result.user, "alice");
 });
 
-test("redact: receives value and target as context", (t) => {
-	// arrange
+test("redact: receives value and target as context", () => {
 	const calls: Array<{ key: unknown; value: unknown; target: unknown }> = [];
 	const input = { port: 5432 };
 	serialize(
@@ -132,19 +108,15 @@ test("redact: receives value and target as context", (t) => {
 		}),
 	);
 
-	// act
-	// assert
-	t.ok(calls.length > 0, "redactor called");
-	t.equal(calls[0].key, "port");
-	t.equal(calls[0].value, 5432);
-	t.equal(calls[0].target, input);
-	t.end();
+	assert.ok(calls.length > 0, "redactor called");
+	assert.strictEqual(calls[0].key, "port");
+	assert.strictEqual(calls[0].value, 5432);
+	assert.strictEqual(calls[0].target, input);
 });
 
 // ─── truncate ─────────────────────────────────────────────────────────────────
 
-test('truncate: strings longer than the limit are truncated with "…"', (t) => {
-	// arrange
+test('truncate: strings longer than the limit are truncated with "…"', () => {
 	const result = serialize(
 		"hello world",
 		new Graph(0),
@@ -152,30 +124,20 @@ test('truncate: strings longer than the limit are truncated with "…"', (t) => 
 		cfg({ truncate: 5 }),
 	);
 
-	// act
-	// assert
-	t.equal(result, "hello…");
-	t.end();
+	assert.strictEqual(result, "hello…");
 });
 
-test("truncate: strings within the limit are kept as-is", (t) => {
-	// arrange
-	// act
-	// assert
+test("truncate: strings within the limit are kept as-is", () => {
 	const result = serialize(
 		"short",
 		new Graph(0),
 		new Set(),
 		cfg({ truncate: 10 }),
 	);
-	t.equal(result, "short");
-	t.end();
+	assert.strictEqual(result, "short");
 });
 
-test("serialization controls: maxDepth, redact, and truncate compose without error", (t) => {
-	// arrange
-	// act
-	// assert
+test("serialization controls: maxDepth, redact, and truncate compose without error", () => {
 	const result = serialize(
 		{ secret: "password", label: "hello world", nested: { a: 1 } },
 		new Graph(0),
@@ -186,21 +148,16 @@ test("serialization controls: maxDepth, redact, and truncate compose without err
 			truncate: 5,
 		}),
 	) as Record<string, unknown>;
-	t.equal(result.secret, "[redacted]");
-	t.equal(result.label, "hello…");
-	t.equal(result.nested, "[…]");
-	t.end();
+	assert.strictEqual(result.secret, "[redacted]");
+	assert.strictEqual(result.label, "hello…");
+	assert.strictEqual(result.nested, "[…]");
 });
 
 // ─── circular references ──────────────────────────────────────────────────────
 
-test('circular references are serialised as { $proxy: "?" }', (t) => {
-	// arrange
-	// act
-	// assert
+test('circular references are serialised as { $proxy: "?" }', () => {
 	const circular: Record<string, unknown> = {};
 	circular.self = circular;
 	const result = serialize(circular, new Graph(0)) as Record<string, unknown>;
-	t.deepEqual(result.self, { $proxy: "?" });
-	t.end();
+	assert.deepStrictEqual(result.self, { $proxy: "?" });
 });
