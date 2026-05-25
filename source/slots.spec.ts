@@ -1,5 +1,5 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { test } from 'node:test';
 import { boundMethod, hasInternalSlots } from './slots';
 
 // ─── hasInternalSlots: probe trap handlers ────────────────────────────────────
@@ -10,6 +10,7 @@ import { boundMethod, hasInternalSlots } from './slots';
 // integration layer: no real-world proxied target has a getter that does this.
 
 test('hasInternalSlots: probe set trap prevents mutation of the original during probing', () => {
+	// arrange
 	class Target {
 		get x() {
 			(this as unknown as Record<string, unknown>).side = true;
@@ -17,8 +18,11 @@ test('hasInternalSlots: probe set trap prevents mutation of the original during 
 		}
 	}
 	const obj = new Target();
+
+	// act
 	const result = hasInternalSlots(obj);
 
+	// assert
 	assert.strictEqual(
 		result,
 		false,
@@ -32,6 +36,7 @@ test('hasInternalSlots: probe set trap prevents mutation of the original during 
 });
 
 test('hasInternalSlots: probe defineProperty trap prevents mutation of the original during probing', () => {
+	// arrange
 	class Target {
 		get x() {
 			Object.defineProperty(this, 'side', { value: true });
@@ -39,8 +44,11 @@ test('hasInternalSlots: probe defineProperty trap prevents mutation of the origi
 		}
 	}
 	const obj = new Target();
+
+	// act
 	const result = hasInternalSlots(obj);
 
+	// assert
 	assert.strictEqual(
 		result,
 		false,
@@ -54,6 +62,7 @@ test('hasInternalSlots: probe defineProperty trap prevents mutation of the origi
 });
 
 test('hasInternalSlots: probe deleteProperty trap prevents mutation of the original during probing', () => {
+	// arrange
 	class Target {
 		side = true;
 		get x() {
@@ -62,8 +71,11 @@ test('hasInternalSlots: probe deleteProperty trap prevents mutation of the origi
 		}
 	}
 	const obj = new Target();
+
+	// act
 	const result = hasInternalSlots(obj);
 
+	// assert
 	assert.strictEqual(
 		result,
 		false,
@@ -77,6 +89,7 @@ test('hasInternalSlots: probe deleteProperty trap prevents mutation of the origi
 });
 
 test('hasInternalSlots: probe setPrototypeOf trap prevents prototype mutation of the original during probing', () => {
+	// arrange
 	class Target {
 		get x() {
 			Object.setPrototypeOf(this, null);
@@ -85,8 +98,11 @@ test('hasInternalSlots: probe setPrototypeOf trap prevents prototype mutation of
 	}
 	const obj = new Target();
 	const originalProto = Object.getPrototypeOf(obj);
+
+	// act
 	const result = hasInternalSlots(obj);
 
+	// assert
 	assert.strictEqual(
 		result,
 		false,
@@ -102,22 +118,37 @@ test('hasInternalSlots: probe setPrototypeOf trap prevents prototype mutation of
 // ─── boundMethod ──────────────────────────────────────────────────────────────
 
 test('boundMethod: returns the same function instance on repeated calls', () => {
+	// arrange
 	const target = {};
 	const fn = () => {};
 	const first = boundMethod(target, 'key', fn);
 	const second = boundMethod(target, 'key', fn);
 
-	assert.strictEqual(first, second, 'same instance returned from cache on second call');
+	// act
+	// assert
+	assert.strictEqual(
+		first,
+		second,
+		'same instance returned from cache on second call',
+	);
 });
 
 test('boundMethod: binds fn to the target as its this', () => {
+	// arrange
 	let captured: unknown;
 	function fn(this: unknown) {
 		captured = this;
 	}
 	const target = {};
+
+	// act
 	const bound = boundMethod(target, 'key', fn);
 	(bound as () => void)();
 
-	assert.strictEqual(captured, target, 'this inside bound call is the original target');
+	// assert
+	assert.strictEqual(
+		captured,
+		target,
+		'this inside bound call is the original target',
+	);
 });

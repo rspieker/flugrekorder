@@ -1,5 +1,5 @@
-import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { test } from 'node:test';
 import { each } from 'template-literal-each';
 import { isProxiable } from './types';
 
@@ -7,8 +7,10 @@ import { isProxiable } from './types';
 type Improbability = any;
 
 test('isProxiable: returns true for proxiable values', () => {
+	// arrange
 	each<{ value: Improbability; label: string }>`
 		value                               | label
+		----------------------------------- | ------------
 		${{}}                               | plain object
 		${[]}                               | array
 		${new Map()}                        | Map
@@ -47,13 +49,17 @@ test('isProxiable: returns true for proxiable values', () => {
 		${class {}}                         | anonymous class
 		${class Q {}}                       | named class
 	`(({ value, label }: Improbability) => {
+		// act
+		// assert
 		assert.ok(isProxiable(value), label);
 	});
 });
 
 test('isProxiable: returns false for non-proxiable values', () => {
+	// arrange
 	each<{ value: Improbability; label: string }>`
 		value         | label
+		------------- | ----------------------------------------------------
 		${null}       | null — typeof null === "object" but Proxy rejects it
 		${undefined}  | undefined
 		${1}          | number
@@ -64,6 +70,8 @@ test('isProxiable: returns false for non-proxiable values', () => {
 		${42n}        | bigint
 		${BigInt(42)} | deceptively similar to the boxed string/number/booleans
 	`(({ value, label }: Improbability) => {
+		// act
+		// assert
 		assert.strictEqual(isProxiable(value), false, label);
 	});
 });

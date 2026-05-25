@@ -10,14 +10,11 @@
  *
  * The URL explains where the name "flugrekorder" comes from.
  */
-import { create } from 'flugrekorder';
+import { create } from "flugrekorder";
 
 // ── Code under test ───────────────────────────────────────────────────────────
 
-async function loadPage(
-	fetchFn: typeof fetch,
-	url: string,
-): Promise<string> {
+async function loadPage(fetchFn: typeof fetch, url: string): Promise<string> {
 	const response = await fetchFn(url);
 
 	if (!response.ok) {
@@ -29,17 +26,17 @@ async function loadPage(
 
 // ── Record ────────────────────────────────────────────────────────────────────
 
-const calls: string[] = [];
+const calls: Array<string> = [];
 
 const recordedFetch = create(fetch, {
-	only: ['apply'],
+	only: ["apply"],
 	recursive: false,
 	callback(r) {
-		if (r.trap !== 'apply') return;
-		const args = (r.args[2] as unknown[])
-			.filter((a) => typeof a !== 'function')
+		if (r.trap !== "apply") return;
+		const args = (r.args[2] as Array<unknown>)
+			.filter((a) => typeof a !== "function")
 			.map((a) => JSON.stringify(a))
-			.join(', ');
+			.join(", ");
 		calls.push(`fetch(${args})`);
 	},
 });
@@ -47,11 +44,11 @@ const recordedFetch = create(fetch, {
 (async () => {
 	const html = await loadPage(
 		recordedFetch,
-		'https://en.wikipedia.org/wiki/Reise,_Reise',
+		"https://en.wikipedia.org/wiki/Reise,_Reise",
 	);
 
-	console.log('Calls recorded:');
-	calls.forEach((entry) => console.log(' ', entry));
+	console.log("Calls recorded:");
+	calls.forEach((entry) => console.log(" ", entry));
 	// fetch("https://en.wikipedia.org/wiki/Reise,_Reise")
 
 	console.log(`\nPage loaded: ${html.length} characters`);

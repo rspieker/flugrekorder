@@ -1,4 +1,4 @@
-import type { Graph } from "./graph";
+import type { Graph } from './graph';
 import {
 	isProxiable,
 	type Origin,
@@ -6,11 +6,11 @@ import {
 	type Redactor,
 	type Serialized,
 	type SerializedOrigin,
-} from "./types";
+} from './types';
 
 export type SerialConfig = {
 	maxDepth: number;
-	redactors: Redactor[];
+	redactors: Array<Redactor>;
 	truncate: number;
 };
 
@@ -31,7 +31,7 @@ function redact(
 		const result = redactor(key, value, target);
 		if (result === false) continue;
 
-		return result === true ? "[redacted]" : result;
+		return result === true ? '[redacted]' : result;
 	}
 
 	return false;
@@ -53,7 +53,7 @@ function proxiable(
 
 	const targetNode = graph.getByTarget(<Proxiable>v);
 	if (targetNode !== undefined) return { $unwrap: { $proxy: targetNode.id } };
-	if (depth >= serial.maxDepth) return "[…]";
+	if (depth >= serial.maxDepth) return '[…]';
 
 	// Plain (unproxied) arrays are safe to iterate directly.
 	if (Array.isArray(v)) {
@@ -63,7 +63,7 @@ function proxiable(
 	}
 
 	// Plain (unproxied) objects: serialize by value with a circular-reference guard.
-	if (seen.has(v)) return { $proxy: "?" };
+	if (seen.has(v)) return { $proxy: '?' };
 
 	seen.add(v);
 
@@ -98,7 +98,7 @@ export function serialize(
 	if (v === null || v === undefined) return v;
 	if (isProxiable(v)) return proxiable(v, graph, seen, serial, depth);
 
-	return typeof v === "string"
+	return typeof v === 'string'
 		? (<string>v).length > serial.truncate
 			? `${(<string>v).slice(0, serial.truncate)}…`
 			: <string>v
@@ -108,7 +108,7 @@ export function serialize(
 /** Converts an Origin to its serialized form — coerces symbol keys to strings. */
 export function origin(o: Origin): SerializedOrigin {
 	if (!o) return null;
-	if ("key" in o)
+	if ('key' in o)
 		return { trap: o.trap, parent: o.parent, key: String(o.key) };
 
 	return o;

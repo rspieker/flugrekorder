@@ -9,26 +9,28 @@
  * includes the full property path and the new value — no matter how deeply
  * nested or how many call frames away the mutation happens.
  */
-import { create, getPath, getProxyById } from 'flugrekorder';
+import { create, getPath, getProxyById } from "flugrekorder";
 
 // ── Shared state ──────────────────────────────────────────────────────────────
 
 const config = {
-	db:    { host: 'localhost', port: 5432 },
+	db: { host: "localhost", port: 5432 },
 	cache: { ttl: 300, maxSize: 1000 },
 };
 
 // ── Wrap before passing anywhere ──────────────────────────────────────────────
 
 let tracked!: typeof config;
-const mutations: string[] = [];
+const mutations: Array<string> = [];
 
 tracked = create(config, {
 	callback(r) {
-		if (r.trap !== 'set' || !r.origin || !('parent' in r.origin)) return;
+		if (r.trap !== "set" || !r.origin || !("parent" in r.origin)) return;
 		const parent = getProxyById(r.origin.parent, tracked);
-		const prefix = parent ? getPath(parent) : '';
-		const path   = prefix ? `${prefix}.${r.origin.key}` : String(r.origin.key);
+		const prefix = parent ? getPath(parent) : "";
+		const path = prefix
+			? `${prefix}.${r.origin.key}`
+			: String(r.origin.key);
 		mutations.push(`${path} = ${JSON.stringify(r.args[2])}`);
 	},
 });
@@ -48,7 +50,7 @@ function initCache(cfg: typeof config) {
 connectToDatabase(tracked);
 initCache(tracked);
 
-console.log('Mutations detected:');
-mutations.forEach(m => console.log(' ', m));
+console.log("Mutations detected:");
+mutations.forEach((m) => console.log(" ", m));
 // db.port = 5433
 // cache.ttl = 600

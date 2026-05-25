@@ -1,10 +1,10 @@
-import type { Writable } from "node:stream";
-import type { GraphNode } from "./graph";
-import { Graph } from "./graph";
-import type { SerialConfig } from "./serialize";
-import { serialize, origin as serializeOrigin } from "./serialize";
-import type { Wrapper } from "./specs";
-import { specs } from "./specs";
+import type { Writable } from 'node:stream';
+import type { GraphNode } from './graph';
+import { Graph } from './graph';
+import type { SerialConfig } from './serialize';
+import { serialize, origin as serializeOrigin } from './serialize';
+import type { Wrapper } from './specs';
+import { specs } from './specs';
 import type {
 	CallTrap,
 	Origin,
@@ -12,17 +12,17 @@ import type {
 	Proxiable,
 	Redactor,
 	Rekording,
-} from "./types";
-import { isProxiable } from "./types";
+} from './types';
+import { isProxiable } from './types';
 
-export { format } from "./format";
+export { format } from './format';
 export {
 	getAncestors,
 	getOrigin,
 	getPath,
 	getProxyById,
 	getTarget,
-} from "./inspection";
+} from './inspection';
 export type {
 	CallTrap,
 	Origin,
@@ -31,8 +31,8 @@ export type {
 	Redactor,
 	Rekording,
 	Serialized,
-} from "./types";
-export { isProxiable } from "./types";
+} from './types';
+export { isProxiable } from './types';
 
 /** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
 type Config = {
@@ -46,10 +46,10 @@ type Config = {
 type CreateOptions = {
 	id?: number | (() => string);
 	recursive?: boolean;
-	only?: string[];
+	only?: Array<string>;
 	filter?: (rekording: Rekording) => boolean;
 	maxDepth?: number;
-	redact?: Redactor | Redactor[];
+	redact?: Redactor | Array<Redactor>;
 	truncate?: number;
 } & (
 	| { stream: Writable; callback?: never }
@@ -161,14 +161,18 @@ function makeProxy<T extends Proxiable>(
 					) {
 						effectiveTrap = 'apply:native';
 						const realThis = isProxiable(preArgs[1])
-							? graph.getByProxy(<Proxiable>preArgs[1])?.target ?? preArgs[1]
+							? (graph.getByProxy(<Proxiable>preArgs[1])
+									?.target ?? preArgs[1])
 							: preArgs[1];
 						effectiveArgs = [preArgs[0], realThis, preArgs[2]];
-						childOrigin = { trap: <CallTrap>effectiveTrap, source: selfId };
+						childOrigin = {
+							trap: <CallTrap>effectiveTrap,
+							source: selfId,
+						};
 						result = Reflect.apply(
-							<(...a: unknown[]) => unknown>preArgs[0],
+							<(...a: Array<unknown>) => unknown>preArgs[0],
 							realThis,
-							<unknown[]>preArgs[2],
+							<Array<unknown>>preArgs[2],
 						);
 					} else {
 						throw e;

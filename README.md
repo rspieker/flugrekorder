@@ -47,7 +47,7 @@ npm install flugrekorder
 ```ts
 import { create, type Rekording } from 'flugrekorder';
 
-const records: Rekording[] = [];
+const records: Array<Rekording> = [];
 const p = create({ greet: (name: string) => `hello, ${name}` }, {
   callback: (r) => records.push(r),
 });
@@ -283,7 +283,7 @@ Wraps `target` in a recording proxy and returns it. The proxy is transparent —
 ```ts
 import { create, type Rekording } from 'flugrekorder';
 
-const records: Rekording[] = [];
+const records: Array<Rekording> = [];
 const p = create(target, { callback: (r) => records.push(r) });
 ```
 
@@ -295,7 +295,7 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON. Mutually exclusive with `callback`. |
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
-| `only` | `string[]` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
+| `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
 
 One of `callback` or `stream` is required.
 
@@ -392,7 +392,7 @@ Looks up a proxy by its recorded ID within the same graph as `proxy`. Useful for
 ```ts
 import { create, getProxyById, type Rekording } from 'flugrekorder';
 
-const records: Rekording[] = [];
+const records: Array<Rekording> = [];
 const p = create({ nested: { x: 1 } }, { callback: (r) => records.push(r) });
 
 p.nested; // triggers a get, result is { $proxy: '#2' }
@@ -417,11 +417,11 @@ type Rekording = {
     key: string;    // property name (symbols are serialised to their string form)
   } | {
     trap: 'apply' | 'construct';
-    source: string; // ID of the function/constructor proxy that was called
-  } | null;         // null for the root proxy
-  args: Serialized[];   // trap arguments
-  result: Serialized;   // return value
-  timestamp: number;    // Date.now() at the moment the trap fired
+    source: string;        // ID of the function/constructor proxy that was called
+  } | null;                // null for the root proxy
+  args: Array<Serialized>; // trap arguments
+  result: Serialized;      // return value
+  timestamp: number;       // Date.now() at the moment the trap fired
 };
 ```
 
@@ -502,7 +502,7 @@ export type Proxiable = object | Function;
 export type Serialized =
   | string | number | boolean | bigint | null | undefined
   | { readonly $proxy: string }
-  | Serialized[]
+  | Array<Serialized>
   | { [key: string]: Serialized };
 
 export type Origin =
@@ -514,7 +514,7 @@ export type Rekording = {
   id: string;
   trap: string;
   origin: { trap: string; parent?: string; key?: string; source?: string } | null;
-  args: Serialized[];
+  args: Array<Serialized>;
   result: Serialized;
   timestamp: number;
 };

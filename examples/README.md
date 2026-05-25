@@ -21,14 +21,14 @@ npx tsx examples/01-spy-without-setup.ts
 
 ```ts
 let spy!: typeof db;
-const calls: Array<{ method: string; args: unknown[] }> = [];
+const calls: Array<{ method: string; args: Array<unknown> }> = [];
 
 spy = create(db, {
   only: ['get', 'apply'],
   callback(r) {
     if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
     const fn = getProxyById(r.origin.source, spy);
-    if (fn) calls.push({ method: getPath(fn), args: r.args[2] as unknown[] });
+    if (fn) calls.push({ method: getPath(fn), args: r.args[2] as Array<unknown> });
   },
 });
 ```
@@ -188,7 +188,7 @@ const recordedFetch = create(fetch, {
   recursive: false,
   callback(r) {
     if (r.trap !== 'apply') return;
-    const args = (r.args[2] as unknown[])
+    const args = (r.args[2] as Array<unknown>)
       .filter(a => typeof a !== 'function')
       .map(a => JSON.stringify(a)).join(', ');
     calls.push(`fetch(${args})`);

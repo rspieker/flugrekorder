@@ -54,7 +54,11 @@ export const specs: Partial<Record<string, Spec>> = {
 			if (hasInternalSlots(target as Proxiable)) {
 				if (typeof result === 'function')
 					return wrap(
-						boundMethod(target as object, key as PropertyKey, result),
+						boundMethod(
+							target as object,
+							key as PropertyKey,
+							result,
+						),
 					);
 			}
 			// Don't proxy C++ binding objects — they crash native code when

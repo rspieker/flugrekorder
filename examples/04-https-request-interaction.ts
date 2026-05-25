@@ -11,8 +11,8 @@
  *
  * The URL is a nod to where the name "flugrekorder" comes from.
  */
-import * as https from 'node:https';
-import { create, getPath, getProxyById } from 'flugrekorder';
+import * as https from "node:https";
+import { create, getPath, getProxyById } from "flugrekorder";
 
 // ── Code under test ───────────────────────────────────────────────────────────
 
@@ -23,10 +23,12 @@ function loadPage(
 ): void {
 	const req = http.request(url);
 
-	req.on('response', (res) => {
+	req.on("response", (res) => {
 		let size = 0;
-		res.on('data', (chunk: Buffer) => { size += chunk.length; });
-		res.on('end', () => callback(res.statusCode ?? 0, size));
+		res.on("data", (chunk: Buffer) => {
+			size += chunk.length;
+		});
+		res.on("end", () => callback(res.statusCode ?? 0, size));
 	});
 
 	req.end();
@@ -35,36 +37,41 @@ function loadPage(
 // ── Record ────────────────────────────────────────────────────────────────────
 
 let client!: typeof https;
-const calls: string[] = [];
+const calls: Array<string> = [];
 
 client = create(https, {
-	only: ['get', 'apply'],
+	only: ["get", "apply"],
 	callback(r) {
-		if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
+		if (r.trap !== "apply" || !r.origin || !("source" in r.origin)) return;
 		const fn = getProxyById(r.origin.source, client);
 		if (!fn) return;
 		const name = getPath(fn);
-		const method = name.split('.').pop() ?? '';
+		const method = name.split(".").pop() ?? "";
 
 		// skip Node.js internals — flugrekorder records everything, but this
 		// example only shows the calls the application code explicitly makes
-		if (method.startsWith('_') || method === 'emit' || method === 'uncork') return;
-		if (name.split('.').length > 2) return;
+		if (method.startsWith("_") || method === "emit" || method === "uncork")
+			return;
+		if (name.split(".").length > 2) return;
 
-		const args = (r.args[2] as unknown[])
-			.filter((a) => typeof a !== 'function')
+		const args = (r.args[2] as Array<unknown>)
+			.filter((a) => typeof a !== "function")
 			.map((a) => JSON.stringify(a))
-			.join(', ');
+			.join(", ");
 		calls.push(`${name}(${args})`);
 	},
 });
 
-loadPage(client, 'https://www.rammstein.de/en/history/reisereisealbum/', (status, size) => {
-	console.log('Calls recorded:');
-	calls.forEach((entry) => console.log(' ', entry));
-	// request("https://www.rammstein.de/en/history/reisereisealbum/")
-	// request().on("response", {})
-	// request().end()
+loadPage(
+	client,
+	"https://www.rammstein.de/en/history/reisereisealbum/",
+	(status, size) => {
+		console.log("Calls recorded:");
+		calls.forEach((entry) => console.log(" ", entry));
+		// request("https://www.rammstein.de/en/history/reisereisealbum/")
+		// request().on("response", {})
+		// request().end()
 
-	console.log(`\nHTTP ${status} — ${size} bytes`);
-});
+		console.log(`\nHTTP ${status} — ${size} bytes`);
+	},
+);

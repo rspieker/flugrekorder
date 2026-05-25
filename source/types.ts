@@ -9,7 +9,11 @@ export type PropertyTrap =
 	| 'getOwnPropertyDescriptor';
 
 /** Reflect traps that invoke a callable — carry a source ID in their origin. Includes synthetic variants for native boundary crossings. */
-export type CallTrap = 'apply' | 'construct' | 'apply:native' | 'construct:native';
+export type CallTrap =
+	| 'apply'
+	| 'construct'
+	| 'apply:native'
+	| 'construct:native';
 
 /** Describes how a proxy was created — which trap fired, on which parent, and under which key or source. Null for root proxies. */
 export type Origin =

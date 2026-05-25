@@ -43,8 +43,10 @@ export function format(rekording: Rekording, proxy?: Proxiable): string {
 		)
 			.map((a) => display(a, proxy))
 			.join(', ');
-		if (trap === 'apply' || trap === 'apply:native') return `${path}(${callArgs})`;
-		if (trap === 'construct' || trap === 'construct:native') return `new ${path}(${callArgs})`;
+		if (trap === 'apply' || trap === 'apply:native')
+			return `${path}(${callArgs})`;
+		if (trap === 'construct' || trap === 'construct:native')
+			return `new ${path}(${callArgs})`;
 	}
 
 	return `${trap} on ${id}`;

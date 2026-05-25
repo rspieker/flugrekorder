@@ -1,5 +1,8 @@
 {
 	"$schema": "https://biomejs.dev/schemas/2.4.15/schema.json",
+	"files": {
+		"includes": ["source/**", "test/**"]
+	},
 	"assist": {
 		"enabled": true,
 		"actions": {
@@ -11,7 +14,19 @@
 	"linter": {
 		"enabled": true,
 		"rules": {
-			"recommended": true
+			"recommended": true,
+			"style": {
+				"useConsistentArrayType": {
+					"level": "error",
+					"options": { "syntax": "generic" }
+				},
+				"useImportType": "error",
+				"noDefaultExport": "error",
+				"noParameterAssign": "error"
+			},
+			"suspicious": {
+				"noConsole": "error"
+			}
 		}
 	},
 	"formatter": {
