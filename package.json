@@ -38,7 +38,7 @@
     "test": "npm run test:unit && npm run test:functional",
     "test:unit": "node --require ./test.register.cjs --test 'source/**/*.spec.ts'",
     "test:functional": "node --require ./test.register.cjs --test 'test/**/*.spec.ts'",
-    "test:coverage": "node --require ./test.register.cjs --test --experimental-test-coverage 'source/**/*.spec.ts'",
+    "test:coverage": "node --require ./test.register.cjs --test --experimental-test-coverage --test-coverage-exclude 'source/**/*.spec.ts' --test-coverage-exclude 'test.register.cjs' 'source/**/*.spec.ts'",
     "prepare": "husky || true"
   },
   "keywords": [
