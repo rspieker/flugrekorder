@@ -38,7 +38,7 @@
     "test": "npm run test:unit && npm run test:functional",
     "test:unit": "node --require ./test.register.cjs --test 'source/**/*.spec.ts'",
     "test:functional": "node --require ./test.register.cjs --test 'test/**/*.spec.ts'",
-    "test:coverage": "node --require ./test.register.cjs --test --experimental-test-coverage --test-coverage-exclude 'source/**/*.spec.ts' --test-coverage-exclude 'test.register.cjs' 'source/**/*.spec.ts'",
+    "test:coverage": "odz -- node --require ./test.register.cjs --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
     "prepare": "husky || true"
   },
   "keywords": [
@@ -65,6 +65,7 @@
     "commitlint": "^20.5.3",
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
+    "one-double-zero": "^1.1.1",
     "release-it": "^20.0.1",
     "template-literal-each": "^3.0.1",
     "ts-node": "^10.9.2",
