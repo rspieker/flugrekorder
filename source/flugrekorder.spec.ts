@@ -1,5 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import fc from 'fast-check';
 import * as flugrekorder from './flugrekorder';
 import {
 	create,
@@ -14,6 +15,19 @@ import {
 
 // biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
 type Improbability = any;
+
+// ─── Arbitraries ──────────────────────────────────────────────────────────────
+
+const safeKey = fc
+	.string({ minLength: 1, maxLength: 20 })
+	.filter((k) => !['__proto__', 'constructor', 'prototype'].includes(k));
+
+const primitive = fc.oneof(
+	fc.string(),
+	fc.integer(),
+	fc.double({ noNaN: true }),
+	fc.boolean(),
+);
 
 // ─── Export surface ───────────────────────────────────────────────────────────
 
@@ -65,6 +79,16 @@ test('primitives are returned unchanged through get', () => {
 	assert.strictEqual(p.b, true, 'boolean');
 });
 
+test('primitives are returned unchanged through get (property)', () => {
+	fc.assert(
+		fc.property(safeKey, primitive, (key, value) => {
+			const target: Record<string, unknown> = { [key]: value };
+			const p = create(target, { callback: () => {} });
+			return (p as Improbability)[key] === value;
+		}),
+	);
+});
+
 test('get trap emits one rekording per property access', () => {
 	const records: Rekording[] = [];
 	const p = create({ a: 1, b: 2 }, { callback: (r) => records.push(r) });
@@ -76,6 +100,24 @@ test('get trap emits one rekording per property access', () => {
 		records.filter((r) => r.trap === 'get').length,
 		2,
 		'two get records',
+	);
+});
+
+test('get trap emits exactly one record per access for any key (property)', () => {
+	fc.assert(
+		fc.property(safeKey, fc.integer(), (key, value) => {
+			const records: Rekording[] = [];
+			const target: Record<string, unknown> = { [key]: value };
+			const p = create(target, { callback: (r) => records.push(r) });
+			(p as Improbability)[key];
+			return records.filter(
+				(r) =>
+					r.trap === 'get' &&
+					r.origin !== null &&
+					'key' in r.origin &&
+					r.origin.key === key,
+			).length === 1;
+		}),
 	);
 });
 
@@ -95,6 +137,17 @@ test('set trap emits a rekording and mutates the underlying value', () => {
 	);
 	assert.ok(rec, 'set record emitted');
 	assert.strictEqual(target.a, 99, 'underlying value mutated');
+});
+
+test('set trap propagates any primitive value to the underlying target (property)', () => {
+	fc.assert(
+		fc.property(safeKey, primitive, (key, value) => {
+			const target: Record<string, unknown> = {};
+			const p = create(target, { callback: () => {} });
+			(p as Improbability)[key] = value;
+			return target[key] === value;
+		}),
+	);
 });
 
 test('apply trap emits a rekording and returns the correct value', () => {
@@ -149,6 +202,16 @@ test('proxy stability: the same underlying object always returns the same proxy'
 	const p = create({ a: shared, b: shared }, { callback: () => {} });
 
 	assert.strictEqual(p.a, p.b, 'both references return the identical proxy instance');
+});
+
+test('proxy stability: holds for any object (property)', () => {
+	fc.assert(
+		fc.property(fc.object({ maxDepth: 1 }), (target) => {
+			const p = create(target, { callback: () => {} });
+			const q = create(p, { callback: () => {} });
+			return p === q;
+		}),
+	);
 });
 
 test('a known target passed as a call argument is proxied, so interactions on it are recorded', () => {
@@ -255,6 +318,20 @@ test('isFlugrekorder returns false for plain objects and primitives', () => {
 	assert.strictEqual(isFlugrekorder(42), false, 'number');
 	assert.strictEqual(isFlugrekorder(null), false, 'null');
 	assert.strictEqual(isFlugrekorder('hi'), false, 'string');
+});
+
+test('isFlugrekorder returns true for any proxied object (property)', () => {
+	fc.assert(
+		fc.property(fc.object({ maxDepth: 1 }), (target) => {
+			return isFlugrekorder(create(target, { callback: () => {} }));
+		}),
+	);
+});
+
+test('isFlugrekorder returns false for any primitive (property)', () => {
+	fc.assert(
+		fc.property(primitive, (value) => !isFlugrekorder(value)),
+	);
 });
 
 // ─── recursive option ─────────────────────────────────────────────────────────
