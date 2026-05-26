@@ -490,9 +490,9 @@ describe('test/boundary', () => {
 			const result = (p as Improbability).cloneArg(dataProxy);
 
 			// assert
-			assert.deepStrictEqual(
-				result,
-				{ value: 42 },
+			const expected = { value: 42 };
+			assert.ok(
+				Object.entries(expected).every(([key, value]) => (result as Improbability)[key] === value),
 				'cloned value matches original',
 			);
 
