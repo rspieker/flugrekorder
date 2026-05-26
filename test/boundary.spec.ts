@@ -449,4 +449,66 @@ describe('test/boundary', () => {
 			);
 		});
 	});
+
+	describe('apply:structure', () => {
+		test('apply:structure is emitted when structuredClone rejects a proxied arg and retries with real target', () => {
+			// arrange
+			// structuredClone throws DataCloneError when given a Proxy — V8 detects it at
+			// the C++ level. When the proxied arg is in our graph we can unwrap and retry.
+			const records: Array<Rekording> = [];
+			const target = {
+				getData() {
+					return { value: 42 };
+				},
+				cloneArg(arg: unknown) {
+					return structuredClone(arg);
+				},
+			};
+			const p = create(target, {
+				callback: (r) => records.push(r),
+				recursive: true,
+			});
+
+			// act
+			// p.getData() returns a proxy (recursive mode); passing it to cloneArg
+			// causes structuredClone to throw DataCloneError inside cloneArg.
+			const dataProxy = (p as Improbability).getData();
+			const result = (p as Improbability).cloneArg(dataProxy);
+
+			// assert
+			assert.deepStrictEqual(result, { value: 42 }, 'cloned value matches original');
+
+			const structureRec = records.find((r) => r.trap === 'apply:structure');
+			assert.ok(structureRec, 'apply:structure record emitted for the DataCloneError retry');
+
+			const isUnwrapTag = (v: unknown): v is { $unwrap: { $proxy: string } } =>
+				typeof v === 'object' &&
+				v !== null &&
+				!Array.isArray(v) &&
+				'$unwrap' in (v as object);
+
+			assert.ok(
+				Array.isArray(structureRec?.args[2]) && isUnwrapTag(structureRec.args[2][0]),
+				'unwrapped proxy arg serialized as $unwrap in args[2][0]',
+			);
+		});
+
+		test('apply:structure re-throws DataCloneError when retry also fails (arg not in graph)', () => {
+			// arrange
+			// If the DataCloneError arg is not a proxy in our graph, unwrapping is a
+			// no-op and the retry will throw again — the error must propagate unchanged.
+			const target = {
+				clone(arg: unknown) {
+					return structuredClone(arg);
+				},
+			};
+			const p = create(target, { callback: () => {} });
+
+			// act / assert
+			assert.throws(
+				() => (p as Improbability).clone(() => {}),
+				(e: unknown) => e instanceof DOMException && e.name === 'DataCloneError',
+			);
+		});
+	});
 });

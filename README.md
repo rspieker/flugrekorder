@@ -500,6 +500,16 @@ Promises cannot be proxied directly — native `.then()` checks for the `[[Promi
 
 Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `wrapKnown` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
 
+### Native boundary crossings (`apply:native`, `apply:structure`)
+
+Some native code rejects a `Proxy` as `this` or as an argument — V8 checks the real target at the C++ level before any JS runs. flugrekorder catches these failures, retries with the unwrapped real target, and records the crossing with a synthetic trap name so it remains visible in the rekording.
+
+**`apply:native`** — a C++ method threw `TypeError: Illegal invocation` because `this` was a Proxy. The real target is substituted for `this` and the call is retried. The unwrapped `this` appears as `{ $unwrap: { $proxy: "<id>" } }` in `args[1]`.
+
+**`apply:structure`** — a function internally passed a proxied argument to the [Structured Clone Algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm) (`structuredClone`, `postMessage`, `history.pushState`, …), which threw `DataCloneError`. flugrekorder unwraps any proxy arguments in the call and retries. Unwrapped args appear as `{ $unwrap: { $proxy: "<id>" } }` in `args[2]`.
+
+**Remaining gap** — a *direct* `structuredClone(proxy)` call that never passes through a flugrekorder trap cannot be intercepted; V8 resolves the proxy before any JS runs. Use `structuredClone(getTarget(proxy))` at the call site as a workaround.
+
 ---
 
 ## Types
@@ -578,7 +588,8 @@ type Rekording = {
 ### `Serialized`
 Serialized recorded values can be:
 - Primitives: `string`, `number`, `boolean`, `bigint`, `null`, `undefined`
-- Proxy reference: `{ $proxy: string }`
+- Proxy reference: `{ $proxy: string }` — a proxiable value known to the graph, referenced by ID
+- Raw target reference: `{ $unwrap: { $proxy: string } }` — the real target behind a proxy, recorded when a native boundary crossing required unwrapping (see [`apply:native`](#native-boundary-crossings-and-applynative))
 - Array of `Serialized`
 - Plain object with `Serialized` values
 
@@ -586,6 +597,7 @@ Serialized recorded values can be:
 type Serialized =
   | string | number | boolean | bigint | null | undefined
   | { readonly $proxy: string }
+  | { readonly $unwrap: { readonly $proxy: string } }
   | Array<Serialized>
   | { [key: string]: Serialized };
 ```
