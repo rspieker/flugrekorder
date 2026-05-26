@@ -98,8 +98,6 @@ function makeProxy<T extends Proxiable>(
 
 	const proxyId = graph.nextId();
 
-	let pxy!: T;
-
 	const traps = (<Array<keyof typeof Reflect>>(
 		Object.getOwnPropertyNames(Reflect)
 	)).filter((trap) => config.only === null || config.only.has(trap));
@@ -108,7 +106,7 @@ function makeProxy<T extends Proxiable>(
 		traps.map((trap) => [
 			trap,
 			(...rawArgs: Array<unknown>) => {
-				const selfId = (<GraphNode>graph.getByProxy(pxy)).id;
+				const selfId = (<GraphNode>graph.getByTarget(target)).id;
 
 				let childOrigin: Origin =
 					/get|set|defineProperty|getOwnPropertyDescriptor/.test(trap)
@@ -205,7 +203,7 @@ function makeProxy<T extends Proxiable>(
 		]),
 	);
 
-	pxy = <T>(<unknown>new Proxy(<Proxiable>target, handler));
+	const pxy = <T>(<unknown>new Proxy(<Proxiable>target, handler));
 
 	graph.register(<Proxiable>pxy, <Proxiable>target, origin, proxyId);
 	Graph.track(<Proxiable>pxy);
