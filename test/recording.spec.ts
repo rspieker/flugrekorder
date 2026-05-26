@@ -2,17 +2,11 @@ import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { describe, test } from 'node:test';
 import { create, type Rekording } from '../source/flugrekorder';
-
-// biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
-type Improbability = any;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const isProxyTag = (v: unknown): v is { $proxy: string } =>
-	typeof v === 'object' &&
-	v !== null &&
-	!Array.isArray(v) &&
-	'$proxy' in (v as object);
+import {
+	createTestProxyRecorder,
+	type Improbability,
+	isProxyTag,
+} from './test-helpers';
 
 function makeStream() {
 	const lines: Array<string> = [];
@@ -29,18 +23,14 @@ function makeStream() {
 	return { stream, lines };
 }
 
-// ─── $proxy tags and primitive inlining ───────────────────────────────────────
 describe('test/recording', () => {
 	test('proxiable results are serialised as $proxy tags', () => {
 		// arrange
-		const records: Array<Rekording> = [];
-		const p = create(
-			{ obj: { v: 1 } },
-			{ callback: (r) => records.push(r) },
-		);
-		p.obj;
-
 		// act
+		const { records } = createTestProxyRecorder({ obj: { v: 1 } }, (p) => {
+			p.obj;
+		});
+
 		// assert
 		const rec = records.find(
 			(r) =>
@@ -52,7 +42,7 @@ describe('test/recording', () => {
 		assert.ok(rec, 'get record found');
 		assert.ok(isProxyTag(rec?.result), 'result is a $proxy tag');
 		assert.strictEqual(
-			typeof (rec?.result as { $proxy: string }).$proxy,
+			typeof rec?.result.$proxy,
 			'string',
 			'$proxy is a string',
 		);
@@ -60,11 +50,10 @@ describe('test/recording', () => {
 
 	test('primitive results are inlined in the rekording', () => {
 		// arrange
-		const records: Array<Rekording> = [];
-		const p = create({ n: 7 }, { callback: (r) => records.push(r) });
-
 		// act
-		p.n;
+		const { records } = createTestProxyRecorder({ n: 7 }, (p) => {
+			p.n;
+		});
 
 		// assert
 		const rec = records.find(
@@ -80,11 +69,10 @@ describe('test/recording', () => {
 
 	test('proxy IDs are consistent: result.$proxy matches origin.parent of child records', () => {
 		// arrange
-		const records: Array<Rekording> = [];
-		const p = create({ a: { b: 1 } }, { callback: (r) => records.push(r) });
-
 		// act
-		p.a.b;
+		const { records } = createTestProxyRecorder({ a: { b: 1 } }, (p) => {
+			p.a.b;
+		});
 
 		// assert
 		const getA = records.find(
@@ -117,14 +105,10 @@ describe('test/recording', () => {
 
 	test('apply origin.source matches the $proxy ID of the accessed function', () => {
 		// arrange
-		const records: Array<Rekording> = [];
-		const p = create(
-			{ fn: () => 'ok' },
-			{ callback: (r) => records.push(r) },
-		);
-
 		// act
-		p.fn();
+		const { records } = createTestProxyRecorder({ fn: () => 'ok' }, (p) => {
+			p.fn();
+		});
 
 		// assert
 		const getFn = records.find(
@@ -151,13 +135,11 @@ describe('test/recording', () => {
 
 	test('symbol property keys are serialised as strings in records', () => {
 		// arrange
-		const records: Array<Rekording> = [];
-		const sym = Symbol('myKey');
-		const target = { [sym]: 'value' };
-		const p = create(target, { callback: (r) => records.push(r) });
-
 		// act
-		p[sym];
+		const sym = Symbol('myKey');
+		const { records } = createTestProxyRecorder({ [sym]: 'value' }, (p) => {
+			p[sym];
+		});
 
 		// assert
 		const rec = records.find(
@@ -171,139 +153,144 @@ describe('test/recording', () => {
 		);
 	});
 
-	// ─── Timestamp ────────────────────────────────────────────────────────────────
+	describe('timestamp', () => {
+		test('every rekording has a numeric timestamp', () => {
+			// arrange
+			// act
+			const { records } = createTestProxyRecorder({ x: 1 }, (p) => {
+				p.x;
+			});
 
-	test('every rekording has a numeric timestamp', () => {
-		// arrange
-		const records: Array<Rekording> = [];
-		const p = create({ x: 1 }, { callback: (r) => records.push(r) });
+			// assert
+			assert.strictEqual(
+				typeof records[0].timestamp,
+				'number',
+				'timestamp is a number',
+			);
+		});
 
-		// act
-		p.x;
+		test('timestamps are monotonically non-decreasing across sequential traps', () => {
+			// arrange
+			// act
+			const { records } = createTestProxyRecorder(
+				{ a: 1, b: 2, c: 3 },
+				(p) => {
+					p.a;
+					p.b;
+					p.c;
+				},
+			);
 
-		// assert
-		assert.strictEqual(
-			typeof records[0].timestamp,
-			'number',
-			'timestamp is a number',
-		);
+			// assert
+			for (let i = 1; i < records.length; i++) {
+				assert.ok(
+					records[i].timestamp >= records[i - 1].timestamp,
+					`record ${i} timestamp >= record ${i - 1} timestamp`,
+				);
+			}
+		});
 	});
 
-	test('timestamps are monotonically non-decreasing across sequential traps', () => {
-		// arrange
-		const records: Array<Rekording> = [];
-		const p = create(
-			{ a: 1, b: 2, c: 3 },
-			{ callback: (r) => records.push(r) },
-		);
+	describe('stream sink', () => {
+		test('writes valid NDJSON', () => {
+			// arrange
+			const { stream, lines } = makeStream();
+			const p = create({ x: 1, y: 2 }, { stream });
 
-		// act
-		p.a;
-		p.b;
-		p.c;
+			// act
+			p.x;
+			p.y;
 
-		// assert
-		for (let i = 1; i < records.length; i++) {
+			// assert
 			assert.ok(
-				records[i].timestamp >= records[i - 1].timestamp,
-				`record ${i} timestamp >= record ${i - 1} timestamp`,
+				lines.length >= 2,
+				`at least two lines written (got ${lines.length})`,
 			);
-		}
-	});
-
-	// ─── Stream sink ──────────────────────────────────────────────────────────────
-
-	test('stream sink: writes valid NDJSON', () => {
-		// arrange
-		const { stream, lines } = makeStream();
-		const p = create({ x: 1, y: 2 }, { stream });
-
-		// act
-		p.x;
-		p.y;
-
-		// assert
-		assert.ok(
-			lines.length >= 2,
-			`at least two lines written (got ${lines.length})`,
-		);
-		for (const line of lines) {
-			assert.doesNotThrow(() => JSON.parse(line), 'line is valid JSON');
-			const rec = JSON.parse(line);
-			assert.strictEqual(typeof rec.id, 'string', 'id is a string');
-			assert.strictEqual(typeof rec.trap, 'string', 'trap is a string');
-			assert.ok('origin' in rec, 'origin field present');
-			assert.ok(Array.isArray(rec.args), 'args is an array');
-			assert.ok('result' in rec, 'result field present');
-		}
-	});
-
-	test('stream sink: every record round-trips through JSON.stringify', () => {
-		// arrange
-		const { stream, lines } = makeStream();
-		const p = create({ a: { b: () => ({ v: 1 }) } }, { stream });
-
-		// act
-		p.a.b();
-
-		// assert
-		for (const line of lines) {
-			const rec = JSON.parse(line);
-			assert.doesNotThrow(
-				() => JSON.stringify(rec),
-				`record ${rec.id} is fully serialisable`,
-			);
-		}
-	});
-
-	test('stream sink: origins contain only string IDs (no live references)', () => {
-		// arrange
-		const { stream, lines } = makeStream();
-		const p = create({ a: { b: 1 }, fn: () => 'x' }, { stream });
-
-		// act
-		p.a.b;
-		p.fn();
-
-		// assert
-		for (const line of lines) {
-			const rec = JSON.parse(line);
-			if (rec.origin && 'parent' in rec.origin) {
-				assert.strictEqual(
-					typeof rec.origin.parent,
-					'string',
-					'origin.parent is a string ID',
+			for (const line of lines) {
+				assert.doesNotThrow(
+					() => JSON.parse(line),
+					'line is valid JSON',
 				);
+				const rec = JSON.parse(line);
+				assert.strictEqual(typeof rec.id, 'string', 'id is a string');
 				assert.strictEqual(
-					typeof rec.origin.key,
+					typeof rec.trap,
 					'string',
-					'origin.key is a string',
+					'trap is a string',
+				);
+				assert.ok('origin' in rec, 'origin field present');
+				assert.ok(Array.isArray(rec.args), 'args is an array');
+				assert.ok('result' in rec, 'result field present');
+			}
+		});
+
+		test('every record round-trips through JSON.stringify', () => {
+			// arrange
+			const { stream, lines } = makeStream();
+			const p = create({ a: { b: () => ({ v: 1 }) } }, { stream });
+
+			// act
+			p.a.b();
+
+			// assert
+			for (const line of lines) {
+				const rec = JSON.parse(line);
+				assert.doesNotThrow(
+					() => JSON.stringify(rec),
+					`record ${rec.id} is fully serialisable`,
 				);
 			}
-			if (rec.origin && 'source' in rec.origin) {
-				assert.strictEqual(
-					typeof rec.origin.source,
-					'string',
-					'origin.source is a string ID',
-				);
+		});
+
+		test('origins contain only string IDs (no live references)', () => {
+			// arrange
+			const { stream, lines } = makeStream();
+			const p = create({ a: { b: 1 }, fn: () => 'x' }, { stream });
+
+			// act
+			p.a.b;
+			p.fn();
+
+			// assert
+			for (const line of lines) {
+				const rec = JSON.parse(line);
+				if (rec.origin && 'parent' in rec.origin) {
+					assert.strictEqual(
+						typeof rec.origin.parent,
+						'string',
+						'origin.parent is a string ID',
+					);
+					assert.strictEqual(
+						typeof rec.origin.key,
+						'string',
+						'origin.key is a string',
+					);
+				}
+				if (rec.origin && 'source' in rec.origin) {
+					assert.strictEqual(
+						typeof rec.origin.source,
+						'string',
+						'origin.source is a string ID',
+					);
+				}
 			}
-		}
-	});
+		});
 
-	test('stream sink: timestamp is present and numeric in NDJSON output', () => {
-		// arrange
-		const { stream, lines } = makeStream();
-		const p = create({ x: 1 }, { stream });
+		test('timestamp is present and numeric in NDJSON output', () => {
+			// arrange
+			const { stream, lines } = makeStream();
+			const p = create({ x: 1 }, { stream });
 
-		// act
-		p.x;
+			// act
+			p.x;
 
-		// assert
-		const rec = JSON.parse(lines[0]);
-		assert.strictEqual(
-			typeof rec.timestamp,
-			'number',
-			'timestamp is a number in NDJSON',
-		);
+			// assert
+			const rec = JSON.parse(lines[0]);
+			assert.strictEqual(
+				typeof rec.timestamp,
+				'number',
+				'timestamp is a number in NDJSON',
+			);
+		});
 	});
 });

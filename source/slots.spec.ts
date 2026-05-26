@@ -2,8 +2,6 @@ import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { boundMethod, hasInternalSlots } from './slots';
 
-// ─── hasInternalSlots: probe trap handlers ────────────────────────────────────
-//
 // The probe Proxy inside hasInternalSlots traps set/defineProperty/deleteProperty/
 // setPrototypeOf so that a getter which mutates its own receiver doesn't corrupt
 // the original target during probing. These traps are unreachable through the

@@ -3,17 +3,7 @@ import { createServer } from 'node:http';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
 import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder';
-
-// biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
-type Improbability = any;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-const isProxyTag = (v: unknown): v is { $proxy: string } =>
-	typeof v === 'object' &&
-	v !== null &&
-	!Array.isArray(v) &&
-	'$proxy' in (v as object);
+import { createTestProxyRecorder, type Improbability, isProxyTag } from './test-helpers';
 
 // Finds all apply records for a given method name by cross-referencing the
 // preceding get record's $proxy result with apply origin.source.
@@ -21,59 +11,59 @@ function appliesFor(
 	records: Array<Rekording>,
 	method: string,
 ): Array<Rekording> {
-	const getRecord = records.find(
+	const found = records.find(
 		(r) =>
 			r.trap === 'get' &&
 			r.origin !== null &&
 			'key' in r.origin &&
 			r.origin.key === method,
 	);
-	if (!getRecord || !isProxyTag(getRecord.result)) return [];
-	const fnId = (getRecord.result as { $proxy: string }).$proxy;
-	return records.filter(
-		(r) =>
-			r.trap === 'apply' &&
-			r.origin !== null &&
-			'source' in r.origin &&
-			r.origin.source === fnId,
-	);
-}
+	if (isProxyTag(found?.result)) {
+		const fnId = found.result.$proxy;
 
-// ─── Native objects with internal slots ───────────────────────────────────────
+		return records.filter(
+			(r) =>
+				r.trap === 'apply' &&
+				r.origin !== null &&
+				'source' in r.origin &&
+				r.origin.source === fnId,
+		);
+	}
+
+	return [];
+}
 
 describe('test/boundary', () => {
 	describe('native objects', () => {
 		test('objects with internal slots', () => {
-			// arrange
 			each`
-		message        | input                       | access                                 | expect
-		-------------- | --------------------------- | -------------------------------------- | -------
-		Array.length   | ${[1, 2, 3]}                | ${(f: Improbability) => f.length}      | ${3}
-		Map.size       | ${new Map([['a', 1]])}      | ${(f: Improbability) => f.size}        | ${1}
-		Map.get        | ${new Map([['a', 1]])}      | ${(f: Improbability) => f.get('a')}    | ${1}
-		Set.size       | ${new Set([1, 2, 3])}       | ${(f: Improbability) => f.size}        | ${3}
-		Set.has        | ${new Set([1, 2, 3])}       | ${(f: Improbability) => f.has(1)}      | ${true}
-		Date.getTime   | ${new Date(0)}              | ${(f: Improbability) => f.getTime()}   | ${0}
-	`(({ message, input, access, expect }: Improbability) => {
+				message        | input                       | access                                 | expect
+				-------------- | --------------------------- | -------------------------------------- | -------
+				Array.length   | ${[1, 2, 3]}                | ${(f: Improbability) => f.length}      | ${3}
+				Map.size       | ${new Map([['a', 1]])}      | ${(f: Improbability) => f.size}        | ${1}
+				Map.get        | ${new Map([['a', 1]])}      | ${(f: Improbability) => f.get('a')}    | ${1}
+				Set.size       | ${new Set([1, 2, 3])}       | ${(f: Improbability) => f.size}        | ${3}
+				Set.has        | ${new Set([1, 2, 3])}       | ${(f: Improbability) => f.has(1)}      | ${true}
+				Date.getTime   | ${new Date(0)}              | ${(f: Improbability) => f.getTime()}   | ${0}
+			`(({ message, input, access, expect }: Improbability) => {
+				// arrange
+				const p = create(input, { callback: () => {} });
+
 				// act
 				// assert
-				const p = create(input, { callback: () => {} });
 				assert.strictEqual(access(p), expect, message);
 			});
 		});
 
 		test('Map: set/get/delete of an object value are recorded', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const obj = { id: 1 };
-			const p = create(new Map<string, typeof obj>(), {
-				callback: (r) => records.push(r),
-			});
+			const { records, proxy } = createTestProxyRecorder(new Map<string, typeof obj>())
 
 			// act
-			p.set('k', obj);
-			const retrieved = p.get('k');
-			const deleted = p.delete('k');
+			proxy.set('k', obj);
+			const retrieved = proxy.get('k');
+			const deleted = proxy.delete('k');
 
 			// assert
 			const [setRec] = appliesFor(records, 'set');
@@ -121,17 +111,14 @@ describe('test/boundary', () => {
 
 		test('Set: add/has/delete of an object are recorded', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const obj = { id: 1 };
-			const p = create(new Set<typeof obj>(), {
-				callback: (r) => records.push(r),
-			});
+			const { records, proxy } = createTestProxyRecorder(new Set<typeof obj>());
 
 			// act
-			p.add(obj);
-			const before = p.has(obj);
-			p.delete(obj);
-			const after = p.has(obj);
+			proxy.add(obj);
+			const before = proxy.has(obj);
+			proxy.delete(obj);
+			const after = proxy.has(obj);
 
 			// assert
 			const [addRec] = appliesFor(records, 'add');
@@ -179,17 +166,14 @@ describe('test/boundary', () => {
 
 		test('WeakMap: set/get/delete of an object value are recorded', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const key = { id: 'key' };
 			const value = { data: 42 };
-			const p = create(new WeakMap<typeof key, typeof value>(), {
-				callback: (r) => records.push(r),
-			});
+			const { records, proxy } = createTestProxyRecorder(new WeakMap<typeof key, typeof value>());
 
 			// act
-			p.set(key, value);
-			const retrieved = p.get(key);
-			const deleted = p.delete(key);
+			proxy.set(key, value);
+			const retrieved = proxy.get(key);
+			const deleted = proxy.delete(key);
 
 			// assert
 			const [setRec] = appliesFor(records, 'set');
@@ -231,11 +215,8 @@ describe('test/boundary', () => {
 
 		test('WeakSet: add/has/delete of an object are recorded', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const obj = { id: 1 };
-			const p = create(new WeakSet<typeof obj>(), {
-				callback: (r) => records.push(r),
-			});
+			const { records, proxy: p } = createTestProxyRecorder(new WeakSet<typeof obj>());
 
 			// act
 			p.add(obj);
@@ -410,7 +391,6 @@ describe('test/boundary', () => {
 			// arrange
 			// A WeakSet keyed by the real object: a Proxy has distinct identity from its
 			// target, so has(proxy) returns false while has(realTarget) returns true.
-			const records: Array<Rekording> = [];
 			const isReal = new WeakSet<object>();
 			const obj: Record<string, unknown> = {
 				nativeLike: function (this: Improbability) {
@@ -420,9 +400,7 @@ describe('test/boundary', () => {
 				},
 			};
 			isReal.add(obj);
-			const p = create(obj as Improbability, {
-				callback: (r) => records.push(r),
-			});
+			const { records, proxy: p } = createTestProxyRecorder(obj as Improbability);
 
 			// act
 			// assert

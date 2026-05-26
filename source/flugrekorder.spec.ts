@@ -1,6 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import fc from 'fast-check';
+import {
+	createTestProxyRecorder,
+	type Improbability,
+} from '../test/test-helpers';
 import * as flugrekorder from './flugrekorder';
 import {
 	create,
@@ -12,9 +16,6 @@ import {
 	isFlugrekorder,
 	type Rekording,
 } from './flugrekorder';
-
-// biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
-type Improbability = any;
 
 const safeKey = fc
 	.string({ minLength: 1, maxLength: 20 })
@@ -66,11 +67,10 @@ describe('source/flugrekorder', () => {
 	describe('core proxy', () => {
 		test('traps with no origin mapping (e.g. has) emit a rekording with null origin', () => {
 			// arrange
-			const records: Array<Rekording> = [];
-			const p = create({ x: 1 }, { callback: (r) => records.push(r) });
-
 			// act
-			'x' in p;
+			const { records } = createTestProxyRecorder({ x: 1 }, (p) => {
+				'x' in p;
+			});
 
 			// assert
 			const rec = records.find((r) => r.trap === 'has');
@@ -84,16 +84,16 @@ describe('source/flugrekorder', () => {
 
 		test('primitives are returned unchanged through get', () => {
 			// arrange
-			const p = create(
+			const proxy = create(
 				{ n: 42, s: 'hi', b: true },
 				{ callback: () => {} },
 			);
 
 			// act
 			// assert
-			assert.strictEqual(p.n, 42, 'number');
-			assert.strictEqual(p.s, 'hi', 'string');
-			assert.strictEqual(p.b, true, 'boolean');
+			assert.strictEqual(proxy.n, 42, 'number');
+			assert.strictEqual(proxy.s, 'hi', 'string');
+			assert.strictEqual(proxy.b, true, 'boolean');
 		});
 
 		test('primitives are returned unchanged through get (property)', () => {
@@ -103,23 +103,26 @@ describe('source/flugrekorder', () => {
 			fc.assert(
 				fc.property(safeKey, primitive, (key, value) => {
 					const target: Record<string, unknown> = { [key]: value };
-					const p = create(target, { callback: () => {} });
-					return (p as Improbability)[key] === value;
+					const proxy = create(target, { callback: () => {} });
+
+					return (proxy as Improbability)[key] === value;
 				}),
 			);
 		});
 
 		test('get trap emits one rekording per property access', () => {
 			// arrange
-			const records: Array<Rekording> = [];
-			const p = create(
-				{ a: 1, b: 2 },
-				{ callback: (r) => records.push(r) },
-			);
-
 			// act
-			p.a;
-			p.b;
+			const { records, proxy: p } = createTestProxyRecorder(
+				{
+					a: 1,
+					b: 2,
+				},
+				(p) => {
+					p.a;
+					p.b;
+				},
+			);
 
 			// assert
 			assert.strictEqual(
@@ -156,12 +159,12 @@ describe('source/flugrekorder', () => {
 
 		test('set trap emits a rekording and mutates the underlying value', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const target: { a: number } = { a: 1 };
-			const p = create(target, { callback: (r) => records.push(r) });
 
 			// act
-			p.a = 99;
+			const { records } = createTestProxyRecorder(target, (p) => {
+				p.a = 99;
+			});
 
 			// assert
 			const rec = records.find(
@@ -191,15 +194,13 @@ describe('source/flugrekorder', () => {
 
 		test('apply trap emits a rekording and returns the correct value', () => {
 			// arrange
-			const records: Array<Rekording> = [];
-			const p = create(
-				{ double: (n: number) => n * 2 },
-				{ callback: (r) => records.push(r) },
-			);
+			const { records, proxy } = createTestProxyRecorder({
+				double: (n: number) => n * 2,
+			});
 
 			// act
 			// assert
-			assert.strictEqual(p.double(5), 10, 'return value is correct');
+			assert.strictEqual(proxy.double(5), 10, 'return value is correct');
 			assert.ok(
 				records.some((r) => r.trap === 'apply'),
 				'apply record emitted',
@@ -208,14 +209,13 @@ describe('source/flugrekorder', () => {
 
 		test('construct trap emits a rekording and returns an instance', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			class Counter {
 				count = 0;
 			}
-			const p = create(Counter, { callback: (r) => records.push(r) });
+			const { records, proxy } = createTestProxyRecorder(Counter);
 
 			// act
-			const instance = new p();
+			const instance = new proxy();
 
 			// assert
 			assert.ok(
@@ -231,12 +231,10 @@ describe('source/flugrekorder', () => {
 
 		test('returned proxiable values are themselves proxied', () => {
 			// arrange
-			const records: Array<Rekording> = [];
-			const p = create(
-				{ nested: { x: 1 } },
-				{ callback: (r) => records.push(r) },
-			);
-			const nested = p.nested;
+			const { records, proxy } = createTestProxyRecorder({
+				nested: { x: 1 },
+			});
+			const nested = proxy.nested;
 			const before = records.length;
 
 			// act
@@ -252,13 +250,13 @@ describe('source/flugrekorder', () => {
 		test('proxy stability: the same underlying object always returns the same proxy', () => {
 			// arrange
 			const shared = { v: 1 };
-			const p = create({ a: shared, b: shared }, { callback: () => {} });
+			const { proxy } = createTestProxyRecorder({ a: shared, b: shared });
 
 			// act
 			// assert
 			assert.strictEqual(
-				p.a,
-				p.b,
+				proxy.a,
+				proxy.b,
 				'both references return the identical proxy instance',
 			);
 		});
@@ -278,18 +276,17 @@ describe('source/flugrekorder', () => {
 
 		test('a known target passed as a call argument is proxied, so interactions on it are recorded', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const child = { x: 42 };
 			const target = {
 				child,
 				fn: (obj: typeof child) => obj.x,
 			};
-			const p = create(target, { callback: (r) => records.push(r) });
-			p.child; // registers child in the graph
+			const { records, proxy } = createTestProxyRecorder(target);
+			proxy.child; // registers child in the graph
 			const before = records.length;
 
 			// act
-			p.fn(child); // passes raw target — known() should return its proxy
+			proxy.fn(child); // passes raw target — known() should return its proxy
 
 			// assert
 			const xAccess = records
@@ -315,11 +312,11 @@ describe('source/flugrekorder', () => {
 					return ++this.c;
 				},
 			};
-			const p = create(target, { callback: () => {} });
+			const { proxy } = createTestProxyRecorder(target);
 
 			// act
 			// assert
-			assert.strictEqual(p.inc(), 1, 'returns 1');
+			assert.strictEqual(proxy.inc(), 1, 'returns 1');
 			assert.strictEqual(target.c, 1, 'underlying counter incremented');
 		});
 
@@ -330,21 +327,21 @@ describe('source/flugrekorder', () => {
 					return this;
 				},
 			};
-			const p = create(target, { callback: () => {} });
+			const { proxy } = createTestProxyRecorder(target);
 
 			// act
 			// assert
 			assert.strictEqual(
-				p.getSelf(),
-				p,
+				proxy.getSelf(),
+				proxy,
 				'getSelf() returns the same proxy instance',
 			);
 		});
 
 		test('arrays are proxied and elements remain accessible', () => {
 			// arrange
-			const p = create({ arr: [10, 20, 30] }, { callback: () => {} });
-			const arr = p.arr;
+			const { proxy } = createTestProxyRecorder({ arr: [10, 20, 30] });
+			const arr = proxy.arr;
 
 			// act
 			// assert
@@ -360,12 +357,12 @@ describe('source/flugrekorder', () => {
 					return 1;
 				}
 			}
-			const p = create(new Foo(), { callback: () => {} });
+			const { proxy } = createTestProxyRecorder(new Foo());
 
 			// act
 			// assert
 			assert.doesNotThrow(
-				() => p.bar(),
+				() => proxy.bar(),
 				'calling a prototype method does not throw',
 			);
 		});
@@ -374,12 +371,12 @@ describe('source/flugrekorder', () => {
 			// arrange
 			class Foo {}
 			const original = new Foo();
-			const p = create(original, { callback: () => {} });
+			const { proxy } = createTestProxyRecorder(original);
 
 			// act
 			// assert
 			assert.ok(
-				p instanceof Foo,
+				proxy instanceof Foo,
 				'instanceof Foo is preserved on the proxy',
 			);
 		});
@@ -455,12 +452,12 @@ describe('source/flugrekorder', () => {
 
 		test('recursive: true (default) proxies nested values', () => {
 			// arrange
-			const records: Array<Rekording> = [];
-			const p = create(
-				{ a: { b: 1 } },
-				{ callback: (r) => records.push(r) },
-			);
-			const a = p.a;
+			const {
+				records,
+				proxy: { a },
+			} = createTestProxyRecorder({
+				a: { b: 1 },
+			});
 			const before = records.length;
 
 			// act
@@ -508,7 +505,7 @@ describe('source/flugrekorder', () => {
 		});
 	});
 
-	describe('optons', () => {
+	describe('options', () => {
 		describe('only', () => {
 			test('restricts which traps emit records', () => {
 				// arrange
@@ -655,15 +652,14 @@ describe('source/flugrekorder', () => {
 
 			test('omitting filter emits all records', () => {
 				// arrange
-				const records: Array<Rekording> = [];
-				const p = create(
-					{ port: 3000 },
-					{ callback: (r) => records.push(r) },
-				);
-
 				// act
-				p.port;
-				p.port = 9999;
+				const { records } = createTestProxyRecorder(
+					{ port: 3000 },
+					(p) => {
+						p.port;
+						p.port = 9999;
+					},
+				);
 
 				// assert
 				const traps = records.map((r) => r.trap);
@@ -976,27 +972,28 @@ describe('source/flugrekorder', () => {
 		describe('getProxyById', () => {
 			test('retrieves a proxy by its recorded ID', () => {
 				// arrange
-				const records: Array<Rekording> = [];
-				const p = create(
-					{ a: { v: 1 } },
-					{ callback: (r) => records.push(r) },
-				);
-
 				// act
-				p.a;
+				const { records, proxy } = createTestProxyRecorder(
+					{
+						a: { v: 1 },
+					},
+					(p) => {
+						p.a;
+					},
+				);
 
 				// assert
 				const rec = records.find((r) => r.trap === 'get');
-				const id = (rec?.result as { $proxy: string })?.$proxy;
+				const id = rec?.result?.$proxy;
 				assert.ok(id, 'a $proxy ID was recorded');
-				const retrieved = getProxyById(id, p);
+				const retrieved = getProxyById(id, proxy);
 				assert.ok(
 					isFlugrekorder(retrieved),
 					'retrieved value is a proxy',
 				);
 				assert.strictEqual(
 					retrieved,
-					p.a,
+					proxy.a,
 					'retrieved proxy is the same instance as p.a',
 				);
 			});

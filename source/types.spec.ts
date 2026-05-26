@@ -1,10 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
+import type { Improbability } from '../test/test-helpers';
 import { isProxiable } from './types';
-
-// biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
-type Improbability = any;
 
 describe('source/types', () => {
 	describe('isProxiable', () => {

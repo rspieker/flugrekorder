@@ -9,19 +9,14 @@ import {
 	isFlugrekorder,
 	type Rekording,
 } from '../source/flugrekorder';
-
-// biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
-type Improbability = any;
-
-// ─── descriptors ─────────────────────────────────────────────────────────────
+import { createTestProxyRecorder, type Improbability } from './test-helpers';
 
 describe('test/flugrekorder', () => {
 	describe('descriptors', () => {
 		test('defineProperty: getter defined via accessor descriptor is proxied and its calls are recorded', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const target: Record<string, unknown> = {};
-			const p = create(target, { callback: (r) => records.push(r) });
+			const { records, proxy: p } = createTestProxyRecorder(target);
 			const innerObj = { value: 42 };
 			Object.defineProperty(p, 'x', {
 				get: () => innerObj,
@@ -41,10 +36,9 @@ describe('test/flugrekorder', () => {
 
 		test('defineProperty: setter defined via accessor descriptor is proxied, incoming value is tracked', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			let received: unknown;
 			const target: Record<string, unknown> = {};
-			const p = create(target, { callback: (r) => records.push(r) });
+			const { records, proxy: p } = createTestProxyRecorder(target);
 			Object.defineProperty(p, 'x', {
 				set: (v) => {
 					received = v;
@@ -89,9 +83,8 @@ describe('test/flugrekorder', () => {
 
 		test('defineProperty with only flag changes (no value/get/set) passes the descriptor through unchanged', () => {
 			// arrange
-			const records: Array<Rekording> = [];
 			const target = { x: 1 };
-			const p = create(target, { callback: (r) => records.push(r) });
+			const { records, proxy: p } = createTestProxyRecorder(target);
 
 			// act
 			Object.defineProperty(p, 'x', {
@@ -144,8 +137,6 @@ describe('test/flugrekorder', () => {
 			);
 		});
 	});
-
-	// ─── promise ─────────────────────────────────────────────────────────────────
 
 	describe('promise', () => {
 		test('async function: resolved value is proxied', async () => {
@@ -224,8 +215,6 @@ describe('test/flugrekorder', () => {
 			);
 		});
 	});
-
-	// ─── helpers ─────────────────────────────────────────────────────────────────
 
 	describe('helpers', () => {
 		test('getOrigin, getAncestors, getPath compose correctly over a deep chain', () => {

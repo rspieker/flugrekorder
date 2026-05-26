@@ -1,31 +1,23 @@
 import assert from 'node:assert/strict';
-import { describe, test } from 'node:test';
+import { beforeEach, describe, test } from 'node:test';
 import { each } from 'template-literal-each';
+import { createTestProxyRecorder, type Improbability } from '../test/test-helpers';
 import { create, format } from './flugrekorder';
 
-// biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
-type Improbability = any;
-
-// ─── Helpers ──────────────────────────────────────────────────────────────────
-
-function record(fn: (proxy: Improbability) => void) {
-	const records: Array<Improbability> = [];
-	const target = {
-		port: 5432,
-		find: function (q: unknown) {
-			return [q];
-		},
-		nested: { value: 1 },
-	};
-	const proxy = create(target, { callback: (r) => records.push(r) });
-	fn(proxy);
-	return { records, proxy };
-}
-
 describe('source/format', () => {
+	let target: Record<string, unknown>;
+
+	beforeEach(() => {
+		target= {
+			port: 5432,
+			find: function (q: unknown) { return [q]; },
+			nested: { value: 1 },
+		};
+	})
+
 	test('returns a non-empty string for every trap type without throwing', () => {
 		// arrange
-		const { records, proxy } = record((p) => {
+		const { records, proxy } = createTestProxyRecorder(target, (p) => {
 			p.port;
 			p.port = 9999;
 			p.find({ active: true });
@@ -38,16 +30,17 @@ describe('source/format', () => {
 		// act
 		// assert
 		each`
-		trap                       | record
-		-------------------------- | -------
-		get                        | ${records.find((r: Improbability) => r.trap === 'get')}
-		set                        | ${records.find((r: Improbability) => r.trap === 'set')}
-		apply                      | ${records.find((r: Improbability) => r.trap === 'apply')}
-		construct                  | ${records.find((r: Improbability) => r.trap === 'construct')}
-		defineProperty             | ${records.find((r: Improbability) => r.trap === 'defineProperty')}
-		getOwnPropertyDescriptor   | ${records.find((r: Improbability) => r.trap === 'getOwnPropertyDescriptor')}
-		has                        | ${records.find((r: Improbability) => r.trap === 'has')}
-	`(({ trap, record: r }: Improbability) => {
+			trap
+			--------------------------
+			get
+			set
+			apply
+			construct
+			defineProperty
+			getOwnPropertyDescriptor
+			has
+		`(({ trap }: Improbability) => {
+			const r = records.find(({ trap: t }: Improbability) => t === trap);
 			assert.ok(r, `${trap} record exists`);
 			assert.doesNotThrow(
 				() => format(r, proxy),
@@ -61,13 +54,24 @@ describe('source/format', () => {
 	});
 
 	describe('trap-specific formats', () => {
+		test('get trap → "<path> → <value>"', () => {
+			const { records, proxy } = createTestProxyRecorder(target, (p) => {
+				p.port;
+			});
+			const r: Improbability = records.find(
+				({ trap }: Improbability) => trap === 'get',
+			);
+
+			assert.strictEqual(format(r, proxy), 'port → 5432');
+		});
+
 		test('set trap → "<path> = <value>"', () => {
 			// arrange
-			const { records, proxy } = record((p) => {
+			const { records, proxy } = createTestProxyRecorder(target, (p) => {
 				p.port = 9999;
 			});
 			const r: Improbability = records.find(
-				(r: Improbability) => r.trap === 'set',
+				({ trap }: Improbability) => trap === 'set',
 			);
 
 			// act
@@ -75,24 +79,13 @@ describe('source/format', () => {
 			assert.strictEqual(format(r, proxy), 'port = 9999');
 		});
 
-		test('get trap → "<path> → <value>"', () => {
-			const { records, proxy } = record((p) => {
-				p.port;
-			});
-			const r: Improbability = records.find(
-				(r: Improbability) => r.trap === 'get',
-			);
-
-			assert.strictEqual(format(r, proxy), 'port → 5432');
-		});
-
 		test('apply trap → "<path>(<args>)"', () => {
 			// arrange
-			const { records, proxy } = record((p) => {
+			const { records, proxy } = createTestProxyRecorder(target, (p) => {
 				p.find({ active: true });
 			});
 			const r: Improbability = records.find(
-				(r: Improbability) => r.trap === 'apply',
+				({ trap }: Improbability) => trap === 'apply',
 			);
 
 			// act
@@ -102,11 +95,11 @@ describe('source/format', () => {
 
 		test('construct trap → "new <path>(<args>)"', () => {
 			// arrange
-			const { records, proxy } = record((p) => {
+			const { records, proxy } = createTestProxyRecorder(target, (p) => {
 				new (p.find as Improbability)(1, 2);
 			});
 			const r: Improbability = records.find(
-				(r: Improbability) => r.trap === 'construct',
+				({ trap }: Improbability) => trap === 'construct',
 			);
 
 			// act
@@ -118,16 +111,14 @@ describe('source/format', () => {
 	describe('proxy resolution', () => {
 		test('$proxy-tagged args resolve to paths when proxy is supplied', () => {
 			// arrange
-			const records: Array<Improbability> = [];
-			const target = { a: { value: 1 }, fn: (x: unknown) => x };
-			const proxy = create(target, { callback: (r) => records.push(r) });
+			const { records, proxy } = createTestProxyRecorder({ a: { value: 1 }, fn: (x: unknown) => x });
 
 			// act
 			proxy.fn(proxy.a);
 
 			// assert
 			const apply: Improbability = records.find(
-				(r: Improbability) => r.trap === 'apply',
+				({ trap }: Improbability) => trap === 'apply',
 			);
 			assert.ok(apply, 'apply record exists');
 			assert.strictEqual(format(apply, proxy), 'fn(a)');
@@ -135,16 +126,14 @@ describe('source/format', () => {
 
 		test('without proxy, $proxy tags show raw IDs', () => {
 			// arrange
-			const records: Array<Improbability> = [];
-			const target = { a: { value: 1 }, fn: (x: unknown) => x };
-			const proxy = create(target, { callback: (r) => records.push(r) });
+			const { records, proxy } = createTestProxyRecorder({ a: { value: 1 }, fn: (x: unknown) => x });
 
 			// act
 			proxy.fn(proxy.a);
 
 			// assert
 			const apply: Improbability = records.find(
-				(r: Improbability) => r.trap === 'apply',
+				({ trap }: Improbability) => trap === 'apply',
 			);
 			assert.ok(apply, 'apply record exists');
 
@@ -204,7 +193,7 @@ describe('source/format', () => {
 
 			// assert
 			const apply: Improbability = records.find(
-				(r: Improbability) => r.trap === 'apply',
+				({ trap }: Improbability) => trap === 'apply',
 			);
 			assert.ok(apply, 'apply record exists');
 			const result = format(apply, proxy);
@@ -218,27 +207,37 @@ describe('source/format', () => {
 	describe('null / undefined', () => {
 		test('null get result displays as "null"', () => {
 			// arrange
-			const records: Array<Improbability> = [];
-			const target = { x: null as unknown };
-			const proxy = create(target, { callback: (r) => records.push(r) });
+			const { records, proxy } = createTestProxyRecorder({ x: null });
 
 			// act
 			proxy.x;
 
 			// assert
 			const get: Improbability = records.find(
-				(r: Improbability) => r.trap === 'get',
+				({ trap }: Improbability) => trap === 'get',
 			);
 			assert.strictEqual(format(get, proxy), 'x → null');
+		});
+
+		test('undefined get result displays as "undefined"', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder({ x: undefined });
+
+			// act
+			proxy.x;
+
+			// assert
+			const get: Improbability = records.find(
+				({ trap }: Improbability) => trap === 'get',
+			);
+			assert.strictEqual(format(get, proxy), 'x → undefined');
 		});
 	});
 
 	describe('array', () => {
 		test('array call argument is displayed in [...] notation', () => {
 			// arrange
-			const records: Array<Improbability> = [];
-			const target = { fn: (..._args: Array<unknown>) => null };
-			const proxy = create(target, { callback: (r) => records.push(r) });
+			const { records, proxy } = createTestProxyRecorder({ fn: (..._args: Array<unknown>) => null });
 
 			// act
 			// Plain array is not in the graph — inlined by serialize(), displayed as [...]
@@ -246,14 +245,14 @@ describe('source/format', () => {
 
 			// assert
 			const apply: Improbability = records.find(
-				(r: Improbability) => r.trap === 'apply',
+				({ trap }: Improbability) => trap === 'apply',
 			);
 			assert.ok(apply, 'apply record exists');
 			assert.strictEqual(format(apply, proxy), 'fn([1, 2, 3])');
 		});
 	});
 
-	describe('unkown proxy ID', () => {
+	describe('unknown proxy ID', () => {
 		test('unresolvable proxy ID in origin falls back to raw ID', () => {
 			// arrange
 			// When a Rekording is formatted against a proxy that does not contain the
@@ -283,11 +282,11 @@ describe('source/format', () => {
 	describe('fallback', () => {
 		test('fallback → "<trap> on <id>" for traps with null origin', () => {
 			// arrange
-			const { records, proxy } = record((p) => {
+			const { records, proxy } = createTestProxyRecorder(target, (p) => {
 				'port' in p;
 			});
 			const r: Improbability = records.find(
-				(r: Improbability) => r.trap === 'has',
+				({ trap }: Improbability) => trap === 'has',
 			);
 
 			// act
