@@ -1,7 +1,7 @@
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { describe, test } from 'node:test';
-import { create, type Rekording } from '../source/flugrekorder';
+import { create } from '../source/flugrekorder';
 import {
 	createTestProxyRecorder,
 	type Improbability,

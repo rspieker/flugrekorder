@@ -7,7 +7,6 @@ import {
 	getProxyById,
 	getTarget,
 	isFlugrekorder,
-	type Rekording,
 } from '../source/flugrekorder';
 import { createTestProxyRecorder, type Improbability } from './test-helpers';
 
@@ -38,7 +37,7 @@ describe('test/flugrekorder', () => {
 			// arrange
 			let received: unknown;
 			const target: Record<string, unknown> = {};
-			const { records, proxy: p } = createTestProxyRecorder(target);
+			const { proxy: p } = createTestProxyRecorder(target);
 			Object.defineProperty(p, 'x', {
 				set: (v) => {
 					received = v;

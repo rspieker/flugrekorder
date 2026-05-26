@@ -113,7 +113,7 @@ describe('source/flugrekorder', () => {
 		test('get trap emits one rekording per property access', () => {
 			// arrange
 			// act
-			const { records, proxy: p } = createTestProxyRecorder(
+			const { records } = createTestProxyRecorder(
 				{
 					a: 1,
 					b: 2,
@@ -353,7 +353,11 @@ describe('source/flugrekorder', () => {
 			assert.doesNotThrow(() => {
 				const p1 = proxy.self;
 				const p2 = proxy.self.self;
-				assert.strictEqual(p1, p2, 'circular reference resolves to the same proxy');
+				assert.strictEqual(
+					p1,
+					p2,
+					'circular reference resolves to the same proxy',
+				);
 			});
 		});
 

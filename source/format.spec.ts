@@ -1,19 +1,24 @@
 import assert from 'node:assert/strict';
 import { beforeEach, describe, test } from 'node:test';
 import { each } from 'template-literal-each';
-import { createTestProxyRecorder, type Improbability } from '../test/test-helpers';
+import {
+	createTestProxyRecorder,
+	type Improbability,
+} from '../test/test-helpers';
 import { create, format } from './flugrekorder';
 
 describe('source/format', () => {
 	let target: Record<string, unknown>;
 
 	beforeEach(() => {
-		target= {
+		target = {
 			port: 5432,
-			find: function (q: unknown) { return [q]; },
+			find: function (q: unknown) {
+				return [q];
+			},
 			nested: { value: 1 },
 		};
-	})
+	});
 
 	test('returns a non-empty string for every trap type without throwing', () => {
 		// arrange
@@ -111,7 +116,10 @@ describe('source/format', () => {
 	describe('proxy resolution', () => {
 		test('$proxy-tagged args resolve to paths when proxy is supplied', () => {
 			// arrange
-			const { records, proxy } = createTestProxyRecorder({ a: { value: 1 }, fn: (x: unknown) => x });
+			const { records, proxy } = createTestProxyRecorder({
+				a: { value: 1 },
+				fn: (x: unknown) => x,
+			});
 
 			// act
 			proxy.fn(proxy.a);
@@ -126,7 +134,10 @@ describe('source/format', () => {
 
 		test('without proxy, $proxy tags show raw IDs', () => {
 			// arrange
-			const { records, proxy } = createTestProxyRecorder({ a: { value: 1 }, fn: (x: unknown) => x });
+			const { records, proxy } = createTestProxyRecorder({
+				a: { value: 1 },
+				fn: (x: unknown) => x,
+			});
 
 			// act
 			proxy.fn(proxy.a);
@@ -221,7 +232,9 @@ describe('source/format', () => {
 
 		test('undefined get result displays as "undefined"', () => {
 			// arrange
-			const { records, proxy } = createTestProxyRecorder({ x: undefined });
+			const { records, proxy } = createTestProxyRecorder({
+				x: undefined,
+			});
 
 			// act
 			proxy.x;
@@ -237,7 +250,9 @@ describe('source/format', () => {
 	describe('array', () => {
 		test('array call argument is displayed in [...] notation', () => {
 			// arrange
-			const { records, proxy } = createTestProxyRecorder({ fn: (..._args: Array<unknown>) => null });
+			const { records, proxy } = createTestProxyRecorder({
+				fn: (..._args: Array<unknown>) => null,
+			});
 
 			// act
 			// Plain array is not in the graph — inlined by serialize(), displayed as [...]

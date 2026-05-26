@@ -1,4 +1,4 @@
-import { create, Proxiable } from '../source/flugrekorder';
+import { create, type Proxiable } from '../source/flugrekorder';
 
 // biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
 export type Improbability = any;
@@ -11,9 +11,12 @@ export function isProxyTag(v: unknown): v is { $proxy: string } {
 	return false;
 }
 
-function noop() { }
+function noop() {}
 
-export function createTestProxyRecorder<T extends Proxiable>(target: T, fn: (proxy: Improbability) => void = noop): {records: Array<Improbability>, proxy: T} {
+export function createTestProxyRecorder<T extends Proxiable>(
+	target: T,
+	fn: (proxy: Improbability) => void = noop,
+): { records: Array<Improbability>; proxy: T } {
 	const records: Array<Improbability> = [];
 	const proxy = create(target, { callback: (r) => records.push(r) });
 

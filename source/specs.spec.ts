@@ -17,7 +17,7 @@ describe('source/specs', () => {
 				${new Promise(() => {})}            | Promise
 				${new Date()}                       | Date
 				${/regex/}                          | RegExp literal
-				${new RegExp('x')}                  | new RegExp
+				${new RegExp(`x${12}`)}             | new RegExp
 				${new ArrayBuffer(8)}               | ArrayBuffer
 				${new DataView(new ArrayBuffer(8))} | DataView
 				${new Int8Array()}                  | Int8Array

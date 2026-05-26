@@ -3,7 +3,11 @@ import { createServer } from 'node:http';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
 import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder';
-import { createTestProxyRecorder, type Improbability, isProxyTag } from './test-helpers';
+import {
+	createTestProxyRecorder,
+	type Improbability,
+	isProxyTag,
+} from './test-helpers';
 
 // Finds all apply records for a given method name by cross-referencing the
 // preceding get record's $proxy result with apply origin.source.
@@ -58,7 +62,9 @@ describe('test/boundary', () => {
 		test('Map: set/get/delete of an object value are recorded', () => {
 			// arrange
 			const obj = { id: 1 };
-			const { records, proxy } = createTestProxyRecorder(new Map<string, typeof obj>())
+			const { records, proxy } = createTestProxyRecorder(
+				new Map<string, typeof obj>(),
+			);
 
 			// act
 			proxy.set('k', obj);
@@ -112,7 +118,9 @@ describe('test/boundary', () => {
 		test('Set: add/has/delete of an object are recorded', () => {
 			// arrange
 			const obj = { id: 1 };
-			const { records, proxy } = createTestProxyRecorder(new Set<typeof obj>());
+			const { records, proxy } = createTestProxyRecorder(
+				new Set<typeof obj>(),
+			);
 
 			// act
 			proxy.add(obj);
@@ -168,7 +176,9 @@ describe('test/boundary', () => {
 			// arrange
 			const key = { id: 'key' };
 			const value = { data: 42 };
-			const { records, proxy } = createTestProxyRecorder(new WeakMap<typeof key, typeof value>());
+			const { records, proxy } = createTestProxyRecorder(
+				new WeakMap<typeof key, typeof value>(),
+			);
 
 			// act
 			proxy.set(key, value);
@@ -216,7 +226,9 @@ describe('test/boundary', () => {
 		test('WeakSet: add/has/delete of an object are recorded', () => {
 			// arrange
 			const obj = { id: 1 };
-			const { records, proxy: p } = createTestProxyRecorder(new WeakSet<typeof obj>());
+			const { records, proxy: p } = createTestProxyRecorder(
+				new WeakSet<typeof obj>(),
+			);
 
 			// act
 			p.add(obj);
@@ -400,7 +412,9 @@ describe('test/boundary', () => {
 				},
 			};
 			isReal.add(obj);
-			const { records, proxy: p } = createTestProxyRecorder(obj as Improbability);
+			const { records, proxy: p } = createTestProxyRecorder(
+				obj as Improbability,
+			);
 
 			// act
 			// assert
@@ -476,19 +490,31 @@ describe('test/boundary', () => {
 			const result = (p as Improbability).cloneArg(dataProxy);
 
 			// assert
-			assert.deepStrictEqual(result, { value: 42 }, 'cloned value matches original');
+			assert.deepStrictEqual(
+				result,
+				{ value: 42 },
+				'cloned value matches original',
+			);
 
-			const structureRec = records.find((r) => r.trap === 'apply:structure');
-			assert.ok(structureRec, 'apply:structure record emitted for the DataCloneError retry');
+			const structureRec = records.find(
+				(r) => r.trap === 'apply:structure',
+			);
+			assert.ok(
+				structureRec,
+				'apply:structure record emitted for the DataCloneError retry',
+			);
 
-			const isUnwrapTag = (v: unknown): v is { $unwrap: { $proxy: string } } =>
+			const isUnwrapTag = (
+				v: unknown,
+			): v is { $unwrap: { $proxy: string } } =>
 				typeof v === 'object' &&
 				v !== null &&
 				!Array.isArray(v) &&
 				'$unwrap' in (v as object);
 
 			assert.ok(
-				Array.isArray(structureRec?.args[2]) && isUnwrapTag(structureRec.args[2][0]),
+				Array.isArray(structureRec?.args[2]) &&
+					isUnwrapTag(structureRec.args[2][0]),
 				'unwrapped proxy arg serialized as $unwrap in args[2][0]',
 			);
 		});
@@ -507,7 +533,8 @@ describe('test/boundary', () => {
 			// act / assert
 			assert.throws(
 				() => (p as Improbability).clone(() => {}),
-				(e: unknown) => e instanceof DOMException && e.name === 'DataCloneError',
+				(e: unknown) =>
+					e instanceof DOMException && e.name === 'DataCloneError',
 			);
 		});
 	});

@@ -9,8 +9,16 @@ export type Wrapper = (v: unknown) => unknown;
 const TypedArray = Object.getPrototypeOf(Int8Array);
 
 const ecmaBuiltins = [
-	Promise, Map, Set, WeakMap, WeakSet,
-	Date, RegExp, ArrayBuffer, TypedArray, DataView,
+	Promise,
+	Map,
+	Set,
+	WeakMap,
+	WeakSet,
+	Date,
+	RegExp,
+	ArrayBuffer,
+	TypedArray,
+	DataView,
 ];
 
 /**
