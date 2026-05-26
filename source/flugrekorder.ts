@@ -151,8 +151,7 @@ function makeProxy<T extends Proxiable>(
 				let result: unknown;
 
 				try {
-					// biome-ignore lint/complexity/noBannedTypes: dynamic Reflect dispatch requires Function cast
-					result = (<Function>Reflect[trap])(...preArgs);
+					result = (<(...args: Array<unknown>) => unknown>Reflect[trap])(...preArgs);
 				} catch (e) {
 					if (trap === 'apply' && e instanceof TypeError && /illegal invocation/i.test(String(e))) {
 						effectiveTrap = 'apply:native';

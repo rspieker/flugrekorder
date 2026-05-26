@@ -1,5 +1,4 @@
-// biome-ignore lint/complexity/noBannedTypes: Function is intentional — Proxiable must accept any callable
-export type Proxiable = object | Function;
+export type Proxiable = object;
 
 /** Reflect traps that operate on a property — carry a parent ID and key in their origin. */
 export type PropertyTrap =

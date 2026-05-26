@@ -1,5 +1,7 @@
 import type { Proxiable } from './types';
 
+type AnyFn = (...args: Array<unknown>) => unknown;
+
 // Per-prototype cache: true if any getter on this prototype (or its chain)
 // throws TypeError when called through a blank Proxy — the signature of an
 // internal slot check.  Keyed by the direct prototype of the proxied target
@@ -9,8 +11,7 @@ const slotProtos = new WeakMap<object, boolean>();
 // Stable bound-method cache: (target, key) → fn.bind(target).
 // Ensures the same proxied bound function is returned every time the same
 // method is accessed on the same target — required for graph proxy stability.
-// biome-ignore lint/complexity/noBannedTypes: bind cache must hold any function type
-const bindCache = new WeakMap<object, Map<PropertyKey, Function>>();
+const bindCache = new WeakMap<object, Map<PropertyKey, AnyFn>>();
 
 // Slot-check TypeErrors have specific messages; filter by them to avoid
 // misclassifying TypeErrors thrown for other reasons (e.g. wrong arg count).
@@ -45,8 +46,7 @@ export function hasInternalSlots(target: Proxiable): boolean {
 			const fn =
 				desc?.get ??
 				(typeof desc?.value === 'function'
-					? // biome-ignore lint/complexity/noBannedTypes: desc.value is narrowed to function by the typeof check above; Function is the only type that exposes .call()
-						(desc.value as Function)
+					? (desc.value as AnyFn)
 					: null);
 			if (fn) {
 				let slots = false;
@@ -71,10 +71,8 @@ export function hasInternalSlots(target: Proxiable): boolean {
 export function boundMethod(
 	target: object,
 	key: PropertyKey,
-	// biome-ignore lint/complexity/noBannedTypes: needs .bind(); no narrower callable type exposes it
-	fn: Function,
-	// biome-ignore lint/complexity/noBannedTypes: return type must match fn; narrowing to a specific signature would be incorrect here
-): Function {
+	fn: AnyFn,
+): AnyFn {
 	let cache = bindCache.get(target);
 	if (!cache) {
 		cache = new Map();

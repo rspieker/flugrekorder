@@ -67,7 +67,7 @@ export const specs: Partial<Record<string, Spec>> = {
 						boundMethod(
 							target as object,
 							key as PropertyKey,
-							result,
+							result as (...args: Array<unknown>) => unknown,
 						),
 					);
 			}
