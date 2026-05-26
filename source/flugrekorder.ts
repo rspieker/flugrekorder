@@ -43,7 +43,7 @@ type Config = {
 	serial: SerialConfig;
 };
 
-type CreateOptions = {
+type CommonCreateOptions = {
 	id?: number | (() => string);
 	recursive?: boolean;
 	only?: Array<string>;
@@ -51,10 +51,13 @@ type CreateOptions = {
 	maxDepth?: number;
 	redact?: Redactor | Array<Redactor>;
 	truncate?: number;
-} & (
-	| { stream: Writable; callback?: never }
-	| { callback: (record: Rekording) => void; stream?: never }
-);
+};
+
+type StreamCreateOptions = CommonCreateOptions & { stream: Writable };
+type CallbackCreateOptions = CommonCreateOptions & {
+	callback: (record: Rekording) => void;
+};
+type CreateOptions = StreamCreateOptions | CallbackCreateOptions;
 
 /**
  * Creates a recording proxy for `target` within `graph`.
@@ -149,28 +152,48 @@ function makeProxy<T extends Proxiable>(
 				let result: unknown;
 
 				try {
-					result = (<(...args: Array<unknown>) => unknown>Reflect[trap])(...preArgs);
+					result = (<(...args: Array<unknown>) => unknown>(
+						Reflect[trap]
+					))(...preArgs);
 				} catch (e) {
-					if (trap === 'apply' && e instanceof TypeError && /illegal invocation/i.test(String(e))) {
+					if (
+						trap === 'apply' &&
+						e instanceof TypeError &&
+						/illegal invocation/i.test(String(e))
+					) {
 						effectiveTrap = 'apply:native';
 						const realThis = isProxiable(preArgs[1])
 							? (graph.getByProxy(<Proxiable>preArgs[1])
 									?.target ?? preArgs[1])
 							: preArgs[1];
 						effectiveArgs = [preArgs[0], realThis, preArgs[2]];
-						childOrigin = { trap: <CallTrap>effectiveTrap, source: selfId };
+						childOrigin = {
+							trap: <CallTrap>effectiveTrap,
+							source: selfId,
+						};
 						result = Reflect.apply(
 							<(...a: Array<unknown>) => unknown>preArgs[0],
 							realThis,
 							<Array<unknown>>preArgs[2],
 						);
-					} else if (trap === 'apply' && e instanceof DOMException && e.name === 'DataCloneError') {
+					} else if (
+						trap === 'apply' &&
+						e instanceof DOMException &&
+						e.name === 'DataCloneError'
+					) {
 						effectiveTrap = 'apply:structure';
-						const unwrappedArgs = (<Array<unknown>>preArgs[2]).map((arg) =>
-							isProxiable(arg) ? (graph.getByProxy(<Proxiable>arg)?.target ?? arg) : arg,
+						const unwrappedArgs = (<Array<unknown>>preArgs[2]).map(
+							(arg) =>
+								isProxiable(arg)
+									? (graph.getByProxy(<Proxiable>arg)
+											?.target ?? arg)
+									: arg,
 						);
 						effectiveArgs = [preArgs[0], preArgs[1], unwrappedArgs];
-						childOrigin = { trap: <CallTrap>effectiveTrap, source: selfId };
+						childOrigin = {
+							trap: <CallTrap>effectiveTrap,
+							source: selfId,
+						};
 						result = Reflect.apply(
 							<(...a: Array<unknown>) => unknown>preArgs[0],
 							<object>preArgs[1],
@@ -219,11 +242,10 @@ export function create<T extends Proxiable>(
 	target: T,
 	options: CreateOptions,
 ): T {
-	const { stream, callback } = options;
-	const write: (r: Rekording) => void = stream
-		? (r) => stream.write(`${JSON.stringify(r)}\n`)
-		: // biome-ignore lint/style/noNonNullAssertion: CreateOptions guarantees stream or callback is set — TypeScript cannot express this mutual exclusion
-			callback!;
+	const write: (r: Rekording) => void =
+		'stream' in options
+			? (r) => options.stream.write(`${JSON.stringify(r)}\n`)
+			: options.callback;
 	const recursive = options.recursive !== false;
 	const only = options.only ? new Set(options.only) : null;
 	const filter = options.filter ?? null;
