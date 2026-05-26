@@ -63,7 +63,7 @@ console.log(records.map((r) => `${r.id} ${r.trap}`));
 
 ## Quick useful patterns
 
-**Watch sort rewrite your array**
+### Watch sort rewrite your array
 
 `sort` reads every element to compare, then writes every position back. Most developers think of it as a single operation. It isn't.
 
@@ -85,6 +85,7 @@ tracked[0] = tracked[0].replace('🔲', '✅');
 tracked.sort();
 ```
 
+Output:
 ```
 0 → 🔲 document quick examples
 0 = ✅ document quick examples
@@ -103,7 +104,7 @@ The read phase (`→`) and write phase (`=`) are visible in sequence. After mark
 
 ---
 
-**What hint JavaScript passes when it coerces your object**
+### What hint JavaScript passes when it coerces your object
 
 Every time JavaScript converts an object to a primitive, it calls `Symbol.toPrimitive` with a hint — `'string'`, `'number'`, or `'default'`. Track a `Date` to see which context passes which:
 
@@ -122,6 +123,7 @@ tracked + '';   // + operator
 +tracked;       // unary plus
 ```
 
+Output:
 ```
 Symbol(Symbol.toPrimitive) → Symbol(Symbol.toPrimitive)
 Symbol(Symbol.toPrimitive)(string)
@@ -135,7 +137,7 @@ Symbol(Symbol.toPrimitive)(number)
 
 ---
 
-**What survives `JSON.stringify` — and what doesn't**
+### What survives `JSON.stringify` — and what doesn't
 
 `toJSON` lets an object control its own serialisation. Track one to see exactly what it reads, what it returns, and which values quietly disappear on the way to JSON.
 
@@ -166,6 +168,7 @@ tracked = create(config, {
 console.log(JSON.stringify(tracked));
 ```
 
+Output:
 ```
 toJSON → undefined
 db → db
@@ -186,7 +189,7 @@ db.toJSON().timeout → Infinity
 
 ---
 
-**How many comparisons does `sort` need?**
+### How many comparisons does `sort` need?
 
 Sorting feels atomic — pass an array, get it back in order. But `sort` calls your comparator repeatedly, and the number of calls — and their order — is what the algorithm actually looks like. Writing every call to disk is an easy way to count them and examine the sequence afterwards.
 
@@ -206,6 +209,7 @@ words.sort(compare);
 console.log(words);
 ```
 
+Output:
 ```
 [ 'apple', 'banana', 'cherry', 'date', 'elderberry', 'fig' ]
 ```
@@ -222,7 +226,7 @@ For 6 words, V8 made 9 comparisons — not 15 (the bubble sort worst case for 6 
 
 ---
 
-**Request logging**
+### Request logging
 
 An HTTP server handles requests concurrently. `callback` accumulates records per request in memory — `stream` writes directly to disk as each trap fires. Custom IDs make records from concurrent requests separable: every record carries its request's namespace.
 
@@ -254,6 +258,7 @@ console.log((await fetch('http://localhost:3000/missing')).status);
 server.close();
 ```
 
+Output:
 ```
 200
 404
@@ -296,6 +301,9 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
 | `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
+| `maxDepth` | `number` | `Infinity` | Maximum depth for nested object serialization. Deeper values are replaced with `[…]`. |
+| `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
+| `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
 
 One of `callback` or `stream` is required.
 
@@ -361,8 +369,8 @@ import { create, getPath } from 'flugrekorder';
 
 const p = create({ a: { b: { fn: () => ({ v: 1 }) } } }, { callback: () => {} });
 
-getPath(p);           // ''
-getPath(p.a);         // 'a'
+getPath(p);          // ''
+getPath(p.a);        // 'a'
 getPath(p.a.b.fn);   // 'a.b.fn'
 getPath(p.a.b.fn()); // 'a.b.fn()'
 ```
@@ -496,26 +504,88 @@ Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable 
 
 ## Types
 
+### `Proxiable`
+Any value that can be proxied: objects or functions.
+
 ```ts
-export type Proxiable = object | Function;
+type Proxiable = object | Function;
+```
 
-export type Serialized =
-  | string | number | boolean | bigint | null | undefined
-  | { readonly $proxy: string }
-  | Array<Serialized>
-  | { [key: string]: Serialized };
+### `Redactor`
+Function that decides how to handle sensitive values during serialization.
 
-export type Origin =
+```ts
+type Redactor = (
+  key: string | symbol,
+  value: unknown,
+  target: object,
+) => string | boolean | null;
+```
+
+```ts
+/**
+ * @param key - Property key being serialized
+ * @param value - Value at that key
+ * @param target - Parent object containing the key
+ * @returns `true` to replace with `"[redacted]"`, `false` to keep as-is,
+ *          a string for custom replacement, or `null` to drop the key
+ */
+const hideSecrets: Redactor = (key) => key === 'password';
+const redactSecrets: Redactor = (key, value) => key === 'password' && '*'.repeat(String(value).length);
+const dropSecrets: Redactor = (key) => key === 'password' ? null : false;
+```
+
+### `Origin`
+Describes how a proxy was created. Every proxied value carries its `Origin` so you can trace where it came from in the proxy tree. `null` for the root proxy.
+
+```ts
+type Origin =
   | { trap: 'get' | 'set' | 'defineProperty' | 'getOwnPropertyDescriptor'; parent: string; key: string | symbol }
   | { trap: 'apply' | 'construct'; source: string }
   | null;
+```
 
-export type Rekording = {
+| Field | Type | Description |
+|-------|------|-------------|
+| `trap` | `string` | The trap that created this proxy |
+| `parent` | `string` | Proxy ID of the parent that returned this value |
+| `key` | `string \| symbol` | Property key accessed |
+| `source` | `string` | Proxy ID of the function that returned this value |
+
+### `Rekording`
+A single recorded interaction from a proxy trap. Every trap firing produces one `Rekording` emitted to your callback or stream.
+
+```ts
+type Rekording = {
   id: string;
   trap: string;
-  origin: { trap: string; parent?: string; key?: string; source?: string } | null;
+  origin: Origin;
   args: Array<Serialized>;
   result: Serialized;
   timestamp: number;
 };
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique identifier for this record |
+| `trap` | `string` | Reflect trap name (`get`, `set`, `apply`, etc.) |
+| `origin` | `Origin` | How this proxy was created |
+| `args` | `Array<Serialized>` | Arguments passed to the trap |
+| `result` | `Serialized` | Return value from the trap |
+| `timestamp` | `number` | When the trap fired |
+
+### `Serialized`
+Serialized recorded values can be:
+- Primitives: `string`, `number`, `boolean`, `bigint`, `null`, `undefined`
+- Proxy reference: `{ $proxy: string }`
+- Array of `Serialized`
+- Plain object with `Serialized` values
+
+```ts
+type Serialized =
+  | string | number | boolean | bigint | null | undefined
+  | { readonly $proxy: string }
+  | Array<Serialized>
+  | { [key: string]: Serialized };
 ```
