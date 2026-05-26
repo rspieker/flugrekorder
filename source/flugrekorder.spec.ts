@@ -338,6 +338,25 @@ describe('source/flugrekorder', () => {
 			);
 		});
 
+		test('circular object graph does not cause infinite recursion', () => {
+			// arrange
+			// The stable proxy identity guard (same target → same proxy) must break
+			// the cycle: accessing obj.self returns the same proxy as obj, so a
+			// second access of .self on the result hits the "already a proxy" fast
+			// path and terminates instead of recursing.
+			type Circular = { value: number; self: Circular };
+			const obj = { value: 1 } as Circular;
+			obj.self = obj;
+			const { proxy } = createTestProxyRecorder(obj);
+
+			// act / assert
+			assert.doesNotThrow(() => {
+				const p1 = proxy.self;
+				const p2 = proxy.self.self;
+				assert.strictEqual(p1, p2, 'circular reference resolves to the same proxy');
+			});
+		});
+
 		test('arrays are proxied and elements remain accessible', () => {
 			// arrange
 			const { proxy } = createTestProxyRecorder({ arr: [10, 20, 30] });

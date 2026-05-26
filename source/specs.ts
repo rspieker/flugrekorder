@@ -4,26 +4,36 @@ import { isProxiable, type Proxiable } from './types';
 /** A function that conditionally wraps a value in a proxy. */
 export type Wrapper = (v: unknown) => unknown;
 
+// %TypedArray% — the abstract base class shared by all TypedArray constructors.
+// Not exposed as a global; reached via the prototype chain of any TypedArray.
+const TypedArray = Object.getPrototypeOf(Int8Array);
+
+const ecmaBuiltins = [
+	Promise, Map, Set, WeakMap, WeakSet,
+	Date, RegExp, ArrayBuffer, TypedArray, DataView,
+];
+
 /**
  * Returns true for standard ECMAScript built-ins whose C++ implementations
  * perform a JavaScript-level type check before touching internal fields —
  * so they throw a catchable TypeError when called through a Proxy rather
  * than crashing the process.  Distinguishes them from Node.js C++ bindings
  * (TCP handles, ConnectionsList, HTTPParser, …) that crash fatally.
+ *
+ * Uses instanceof to cover subclasses — a JS subclass of Map has the same
+ * internal-slot behaviour as Map itself and is equally safe to proxy.
  */
 function isECMABuiltin(v: unknown): boolean {
-	return (
-		v instanceof Promise ||
-		v instanceof Map ||
-		v instanceof Set ||
-		v instanceof WeakMap ||
-		v instanceof WeakSet ||
-		v instanceof Date ||
-		v instanceof RegExp ||
-		v instanceof ArrayBuffer ||
-		ArrayBuffer.isView(v)
-	);
+	return ecmaBuiltins.some((B) => v instanceof B);
 }
+
+/** Returns true when v is a C++ binding object that would crash Node.js if proxied. */
+function isUnsafeBinding(v: unknown): boolean {
+	return isProxiable(v) && hasInternalSlots(v) && !isECMABuiltin(v);
+}
+
+// Exported for testing only.
+export { isECMABuiltin, isUnsafeBinding };
 
 /** Pre/post hooks for a Reflect trap — transform args before dispatch and/or wrap the result. */
 type Spec = {
@@ -65,12 +75,7 @@ export const specs: Partial<Record<string, Spec>> = {
 			// used as Proxies (e.g. ConnectionsList, TCP handles).  ECMAScript
 			// built-ins (Map, Set, Promise, Date …) are excluded: they have
 			// proper JS-level type checks and can be safely proxied.
-			if (
-				isProxiable(result) &&
-				hasInternalSlots(result as Proxiable) &&
-				!isECMABuiltin(result)
-			)
-				return result;
+			if (isUnsafeBinding(result)) return result;
 			return wrap(result);
 		},
 	},
@@ -80,10 +85,7 @@ export const specs: Partial<Record<string, Spec>> = {
 			key,
 			// Don't wrap when target has slots (Map/Set internals) or when the
 			// value is an unsafe C++ binding (TCP handles, etc.).
-			hasInternalSlots(target as Proxiable) ||
-			(isProxiable(value) &&
-				hasInternalSlots(value as Proxiable) &&
-				!isECMABuiltin(value))
+			hasInternalSlots(target as Proxiable) || isUnsafeBinding(value)
 				? value
 				: wrap(value),
 			receiver,
@@ -115,14 +117,7 @@ export const specs: Partial<Record<string, Spec>> = {
 			>args;
 			const patch: PropertyDescriptor = {};
 
-			if (
-				descriptor.value != null &&
-				!(
-					isProxiable(descriptor.value) &&
-					hasInternalSlots(descriptor.value as Proxiable) &&
-					!isECMABuiltin(descriptor.value)
-				)
-			)
+			if (descriptor.value != null && !isUnsafeBinding(descriptor.value))
 				patch.value = wrap(descriptor.value);
 			if (typeof descriptor.get === 'function')
 				patch.get = <() => unknown>wrap(descriptor.get);
@@ -142,14 +137,7 @@ export const specs: Partial<Record<string, Spec>> = {
 
 			const patch: PropertyDescriptor = {};
 
-			if (
-				desc.value != null &&
-				!(
-					isProxiable(desc.value) &&
-					hasInternalSlots(desc.value as Proxiable) &&
-					!isECMABuiltin(desc.value)
-				)
-			)
+			if (desc.value != null && !isUnsafeBinding(desc.value))
 				patch.value = wrap(desc.value);
 			if (typeof desc.get === 'function')
 				patch.get = <() => unknown>wrap(desc.get);
