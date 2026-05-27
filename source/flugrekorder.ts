@@ -12,10 +12,9 @@ import type {
 	Proxiable,
 	Redactor,
 	Rekording,
-	RetryFlow,
 } from './types';
 import { isProxiable } from './types';
-import { createErrorGuard } from './errors';
+import { retryFlows } from './retry';
 
 export { format } from './format';
 export {
@@ -36,79 +35,6 @@ export type {
 } from './types';
 export { isProxiable } from './types';
 
-/** Unwraps a proxiable value to its underlying target if it's a known proxy. */
-const unwrap = (value: unknown, graph: Graph | undefined): unknown =>
-	!graph || !isProxiable(value)
-		? value
-		: (graph.getByProxy(<Proxiable>value)?.target ?? value);
-
-const isDataCloneDOMException = createErrorGuard('DataCloneError');
-const isTypeErrorPrivateMember = createErrorGuard(
-	'TypeError',
-	/private member/i,
-);
-const isTypeErrorIllegalInvocation = createErrorGuard(
-	'TypeError',
-	/illegal invocation/i,
-);
-/** Retry handlers for native boundary crossings — defined once at module level. */
-const retryFlows: Array<RetryFlow> = [
-	{
-		// Native methods (console.log, DOM APIs, http.Server) check the internal
-		// [[Receiver]] slot and throw "Illegal invocation" when called through a
-		// proxy. Unwrap the real target from the graph and retry as the receiver.
-		is: (trap, error) =>
-			trap === 'apply' && isTypeErrorIllegalInvocation(error),
-		trap: 'apply:native',
-		handle: (graph, fn, thisArg, argList) => {
-			const realThis = unwrap(thisArg, graph);
-			return {
-				args: [fn, realThis, argList],
-				result: Reflect.apply(fn, realThis, argList),
-			};
-		},
-	},
-	{
-		// structuredClone and postMessage can't clone proxy objects — they throw a
-		// DataCloneError. Unwrap any proxy arguments to their real targets and retry.
-		is: (trap, error) => trap === 'apply' && isDataCloneDOMException(error),
-		trap: 'apply:structure',
-		handle: (graph, fn, thisArg, argList) => {
-			const unwrappedArgs = argList.map((arg) => unwrap(arg, graph));
-			return {
-				args: [fn, thisArg, unwrappedArgs],
-				result: Reflect.apply(fn, thisArg, unwrappedArgs),
-			};
-		},
-	},
-	{
-		// Private fields (#field) use brand checking — accessing #field on a proxy
-		// (rather than the original instance) throws "Cannot read private member".
-		// Unwrap the real instance from the graph and use it as the receiver.
-		is: (trap, error, bind) =>
-			bind !== false &&
-			trap === 'apply' &&
-			isTypeErrorPrivateMember(error),
-		trap: 'apply:private',
-		handle: (graph, fn, thisArg, argList) => {
-			const realThis = unwrap(thisArg, graph);
-			return {
-				args: [fn, realThis, argList],
-				result: Reflect.apply(fn, realThis, argList),
-			};
-		},
-	},
-	{
-		// A getter that reads a #private field hits the same brand check, but the
-		// apply retry doesn't apply here. Re-invoke Reflect.get with the real target
-		// as its own receiver so the brand check passes.
-		is: (trap, error, bind) =>
-			bind !== false && trap === 'get' && isTypeErrorPrivateMember(error),
-		handle: (_graph, target, propertyKey) => ({
-			result: Reflect.get(target, propertyKey, target),
-		}),
-	},
-];
 
 /** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
 type Config = {

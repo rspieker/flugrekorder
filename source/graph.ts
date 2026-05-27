@@ -1,3 +1,4 @@
+import { isProxiable } from './types';
 import type { Origin, Proxiable } from './types';
 
 /** A node in the proxy graph — links a proxy to its original target, its origin, and its ID. */
@@ -45,6 +46,12 @@ export class Graph {
 
 	nextId(): string {
 		return this.#generator();
+	}
+
+	/** Returns the underlying target if `value` is a proxy known to this graph, otherwise `value` unchanged. */
+	unwrap(value: unknown): unknown {
+		if (!isProxiable(value)) return value;
+		return this.#byProxy.get(value)?.target ?? value;
 	}
 
 	getByProxy(v: Proxiable): GraphNode | undefined {
