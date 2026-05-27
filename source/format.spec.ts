@@ -111,6 +111,42 @@ describe('source/format', () => {
 			// assert
 			assert.strictEqual(format(r, proxy), 'new find(1, 2)');
 		});
+
+		test('construct:native trap → "new <path>(<args>)"', () => {
+			// arrange
+			// construct:native is reserved in CallTrap but no live code path emits it yet;
+			// exercise format() directly with a hand-crafted record.
+			const r: Improbability = {
+				id: '#2',
+				trap: 'construct:native',
+				origin: { trap: 'construct:native', source: '#1' },
+				args: [{}, [42], {}],
+				result: {},
+				timestamp: 0,
+			};
+
+			// act
+			// assert
+			assert.ok(format(r).startsWith('new '), 'renders as new …(…)');
+		});
+
+		test('construct with non-array args[1] falls back to empty arg list', () => {
+			// arrange
+			// args[1] should always be an array in practice, but format() is
+			// a public function — the [] fallback must not throw.
+			const r: Improbability = {
+				id: '#2',
+				trap: 'construct',
+				origin: { trap: 'construct', source: '#1' },
+				args: [{}, 'not-an-array', {}],
+				result: {},
+				timestamp: 0,
+			};
+
+			// act
+			// assert
+			assert.strictEqual(format(r), 'new #1()');
+		});
 	});
 
 	describe('proxy resolution', () => {
@@ -295,6 +331,21 @@ describe('source/format', () => {
 	});
 
 	describe('fallback', () => {
+		test('source-origin trap that is neither apply nor construct falls back to "trap on id"', () => {
+			// The format() branches check apply*, then construct*; anything else inside a
+			// source-origin block falls through to the "trap on id" fallback at line 52.
+			const r: Improbability = {
+				id: '#2',
+				trap: 'unknown:future',
+				origin: { trap: 'apply', source: '#1' },
+				args: [{}, {}, []],
+				result: null,
+				timestamp: 0,
+			};
+
+			assert.strictEqual(format(r), 'unknown:future on #2');
+		});
+
 		test('fallback → "<trap> on <id>" for traps with null origin', () => {
 			// arrange
 			const { records, proxy } = createTestProxyRecorder(target, (p) => {

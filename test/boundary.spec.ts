@@ -442,6 +442,32 @@ describe('test/boundary', () => {
 			);
 		});
 
+		test('apply:native with non-proxiable thisArg passes it directly to retry', () => {
+			// When thisArg is null (not proxiable), isProxiable() is false and the retry
+			// uses it unchanged — no graph lookup needed.
+			const target = { fn() { throw new TypeError('Illegal invocation'); } };
+			const p = create(target, { callback: () => {} });
+			const fnProxy = (p as Improbability).fn as Function;
+			assert.throws(() => Reflect.apply(fnProxy, null, []), TypeError);
+		});
+
+		test('apply:native with thisArg from a different graph falls back to the proxy', () => {
+			// When thisArg is a proxy from a different create() session, getByProxy()
+			// returns undefined for it — the ?? fallback reuses the proxy as-is.
+			const foreignProxy = create({ id: 'foreign' }, { callback: () => {} });
+			const isReal = new WeakSet<object>();
+			const obj: Record<string, unknown> = {
+				fn(this: object) {
+					if (!isReal.has(this)) throw new TypeError('Illegal invocation');
+					return 'ok';
+				},
+			};
+			isReal.add(obj);
+			const p = create(obj, { callback: () => {} });
+			const fnProxy = (p as Improbability).fn as Function;
+			assert.throws(() => Reflect.apply(fnProxy, foreignProxy, []), TypeError);
+		});
+
 		test('apply trap re-throws errors that are not "illegal invocation" TypeErrors', () => {
 			// arrange
 			// Only TypeErrors matching /illegal invocation/ trigger the apply:native retry;
@@ -502,6 +528,18 @@ describe('test/boundary', () => {
 			assert.throws(() => (p as Improbability).increment(), TypeError);
 		});
 
+		test('default (undefined): setter writing #private field is not retried — TypeError propagates', () => {
+			// The private-member retry only handles apply and get; a set trap that
+			// triggers a private-field TypeError is intentionally re-thrown.
+			class PrivateSetter {
+				#value = 0;
+				set val(v: number) { this.#value = v; }
+			}
+			const p = create(new PrivateSetter(), { callback: () => {} });
+
+			assert.throws(() => { (p as Improbability).val = 42; }, TypeError);
+		});
+
 		test('bind: true — pre-binds methods, records as apply (no retry)', () => {
 			const records: Array<Rekording> = [];
 			const p = create(new Counter(), {
@@ -529,6 +567,32 @@ describe('test/boundary', () => {
 			const result = (p as Improbability).value;
 
 			assert.strictEqual(result, 1, 'getter returns correct value');
+		});
+
+		test('apply:private with non-proxiable thisArg (null) passes it directly to retry', () => {
+			// When a method is called with this = null, the private brand check fails with a
+			// "private member" TypeError. isProxiable(null) is false so the retry uses null
+			// directly without a graph lookup.
+			class HasPrivate {
+				#value = 0;
+				increment() { this.#value++; }
+			}
+			const p = create(new HasPrivate(), { callback: () => {} });
+			const fnProxy = (p as Improbability).increment as Function;
+			assert.throws(() => Reflect.apply(fnProxy, null, []), TypeError);
+		});
+
+		test('apply:private with thisArg from a different graph falls back to the proxy', () => {
+			// When thisArg is a proxy from a different create() session, getByProxy()
+			// returns undefined for it — the ?? fallback reuses the proxy as the receiver.
+			class HasPrivate {
+				#value = 0;
+				increment() { this.#value++; }
+			}
+			const foreignProxy = create({ unrelated: true }, { callback: () => {} });
+			const p = create(new HasPrivate(), { callback: () => {} });
+			const fnProxy = (p as Improbability).increment as Function;
+			assert.throws(() => Reflect.apply(fnProxy, foreignProxy, []), TypeError);
 		});
 
 		test('internal #field reads inside methods are not recorded regardless of bind', () => {
@@ -607,6 +671,25 @@ describe('test/boundary', () => {
 					isUnwrapTag(structureRec.args[2][0]),
 				'unwrapped proxy arg serialized as $unwrap in args[2][0]',
 			);
+		});
+
+		test('apply:structure passes primitive args through unchanged during unwrapping', () => {
+			// When the args list contains a mix of proxied objects and primitives (numbers,
+			// strings), isProxiable() is false for primitives — they pass through unchanged.
+			const records: Array<Rekording> = [];
+			const target = {
+				getData() { return { x: 1 }; },
+				process(proxied: unknown, _label: string, _count: number) {
+					return structuredClone([proxied, _label, _count]);
+				},
+			};
+			const p = create(target, { callback: (r) => records.push(r), recursive: true });
+
+			const dataProxy = (p as Improbability).getData();
+			(p as Improbability).process(dataProxy, 'hello', 42);
+
+			const structureRec = records.find((r) => r.trap === 'apply:structure');
+			assert.ok(structureRec, 'apply:structure record emitted');
 		});
 
 		test('apply:structure re-throws DataCloneError when retry also fails (arg not in graph)', () => {
