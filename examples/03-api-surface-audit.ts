@@ -12,7 +12,7 @@
  */
 import { create } from 'flugrekorder';
 
-// ── Your options object ───────────────────────────────────────────────────────
+// options object
 
 const options = {
 	baseUrl:    'https://api.example.com',
@@ -23,18 +23,19 @@ const options = {
 	legacyMode: true,
 };
 
-// ── Wrap before passing to the library ───────────────────────────────────────
+// wrap before passing to the library
 
 const accessed = new Set<string>();
 
 const tracked = create(options, {
 	only: ['get'],
 	callback(r) {
+		// 'key' exists on property-trap origins (get/set/…) but not call-trap origins (apply/construct)
 		if (r.origin && 'key' in r.origin) accessed.add(r.origin.key as string);
 	},
 });
 
-// ── Black-box library call ────────────────────────────────────────────────────
+// black-box library call
 
 function initClient(opts: typeof options) {
 	const endpoint = opts.baseUrl;
@@ -46,7 +47,7 @@ function initClient(opts: typeof options) {
 
 initClient(tracked);
 
-// ── Report ────────────────────────────────────────────────────────────────────
+// report
 
 const all    = Object.keys(options);
 const used   = all.filter(k =>  accessed.has(k));

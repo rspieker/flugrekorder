@@ -12,7 +12,7 @@
  */
 import { create } from "flugrekorder";
 
-// ── Code under test ───────────────────────────────────────────────────────────
+// code under test
 
 async function loadPage(fetchFn: typeof fetch, url: string): Promise<string> {
 	const response = await fetchFn(url);
@@ -24,7 +24,7 @@ async function loadPage(fetchFn: typeof fetch, url: string): Promise<string> {
 	return response.text();
 }
 
-// ── Record ────────────────────────────────────────────────────────────────────
+// record
 
 const calls: Array<string> = [];
 
@@ -33,6 +33,8 @@ const recordedFetch = create(fetch, {
 	recursive: false,
 	callback(r) {
 		if (r.trap !== "apply") return;
+		// Reflect.apply signature: (target, thisArg, argumentsList) — index 2 is the call args
+		// filter out callbacks: they aren't serialisable and add noise without meaning
 		const args = (r.args[2] as Array<unknown>)
 			.filter((a) => typeof a !== "function")
 			.map((a) => JSON.stringify(a))

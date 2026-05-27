@@ -11,14 +11,14 @@
  */
 import { create, getPath, getProxyById } from "flugrekorder";
 
-// ── Shared state ──────────────────────────────────────────────────────────────
+// shared state
 
 const config = {
 	db: { host: "localhost", port: 5432 },
 	cache: { ttl: 300, maxSize: 1000 },
 };
 
-// ── Wrap before passing anywhere ──────────────────────────────────────────────
+// wrap before passing anywhere
 
 let tracked!: typeof config;
 const mutations: Array<string> = [];
@@ -26,16 +26,18 @@ const mutations: Array<string> = [];
 tracked = create(config, {
 	callback(r) {
 		if (r.trap !== "set" || !r.origin || !("parent" in r.origin)) return;
+		// origin.parent is the proxy ID of the object being mutated — resolve it to get the path prefix
 		const parent = getProxyById(r.origin.parent, tracked);
 		const prefix = parent ? getPath(parent) : "";
 		const path = prefix
 			? `${prefix}.${r.origin.key}`
 			: String(r.origin.key);
+		// Reflect.set signature: (target, key, value, receiver) — index 2 is the new value
 		mutations.push(`${path} = ${JSON.stringify(r.args[2])}`);
 	},
 });
 
-// ── Somewhere deep in the application ────────────────────────────────────────
+// somewhere deep in the application
 
 function connectToDatabase(cfg: typeof config) {
 	// Bug: mutates instead of copying — but where exactly?

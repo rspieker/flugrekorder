@@ -16,8 +16,7 @@
 import { createServer } from 'node:http';
 import { create, format, getPath, getProxyById } from 'flugrekorder';
 
-// ── Application ───────────────────────────────────────────────────────────────
-
+// create a simple server
 function makeServer() {
 	return createServer((_req, res) => {
 		res.writeHead(200, { 'Content-Type': 'text/plain' });
@@ -25,21 +24,25 @@ function makeServer() {
 	});
 }
 
-// ── Record ────────────────────────────────────────────────────────────────────
-
-let server!: ReturnType<typeof createServer>;
-
-server = create(makeServer(), {
+// create the server flugrekorder
+const server = create(makeServer(), {
 	only: ['get', 'apply'],
 	callback(r) {
+		// get records are captured so functions enter the graph; only apply records are printed
 		if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
+		// origin.source is the proxy ID of the object the function was read from
 		const fn = getProxyById(r.origin.source, server);
 		if (fn) console.log(format(r, server));
 	},
 });
 
+// wait for it to start
 await new Promise<void>(r => server.listen(3000, r));
+
+// log the result of one request
 console.log((await fetch('http://localhost:3000/')).status);
+
+// stop the server
 server.close();
 
 // Output (apply records only):

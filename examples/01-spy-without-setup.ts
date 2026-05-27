@@ -10,14 +10,14 @@
  */
 import { create, getPath, getProxyById } from "flugrekorder";
 
-// ── Dependency stub ───────────────────────────────────────────────────────────
+// dependency stub
 
 const db = {
 	query: (sql: string, params: Array<unknown>) => [{ id: 1, name: "Alice" }],
 	execute: (sql: string, params: Array<unknown>) => ({ rowsAffected: 1 }),
 };
 
-// ── Code under test ───────────────────────────────────────────────────────────
+// code under test
 
 function userRepository(database: typeof db) {
 	return {
@@ -28,21 +28,22 @@ function userRepository(database: typeof db) {
 	};
 }
 
-// ── Test ──────────────────────────────────────────────────────────────────────
-
 // `spy` is referenced inside the callback — safe because callbacks only fire
 // after `create` returns and spy is fully assigned.
 let spy!: typeof db;
 const calls: Array<{ method: string; args: Array<unknown> }> = [];
 
 spy = create(db, {
+	// get wraps property lookups into proxies so apply can fire on method calls
 	only: ["get", "apply"],
 	callback(r) {
 		if (r.trap !== "apply" || !r.origin || !("source" in r.origin)) return;
+		// origin.source is the proxy ID of the object the function was read from
 		const fn = getProxyById(r.origin.source, spy);
 		if (fn)
 			calls.push({
 				method: getPath(fn),
+				// Reflect.apply signature: (target, thisArg, argumentsList) — index 2 is the call args
 				args: r.args[2] as Array<unknown>,
 			});
 	},
