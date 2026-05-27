@@ -9,14 +9,14 @@ function cfg(overrides: Partial<SerialConfig>): SerialConfig {
 }
 
 describe('source/serialize', () => {
-	describe('maxDepth', () => {
+	describe('depth', () => {
 		test('nested objects beyond the limit are replaced with "[…]"', () => {
 			// arrange
 			const result = serialize(
 				{ a: { b: 'deep' } },
 				new Graph(0),
 				new Set(),
-				cfg({ maxDepth: 1 }),
+				cfg({ depth: 1 }),
 			) as Record<string, unknown>;
 
 			// act
@@ -30,7 +30,7 @@ describe('source/serialize', () => {
 				{ a: { b: 'hi' } },
 				new Graph(0),
 				new Set(),
-				cfg({ maxDepth: 2 }),
+				cfg({ depth: 2 }),
 			) as Record<string, unknown>;
 
 			// act
@@ -174,15 +174,15 @@ describe('source/serialize', () => {
 		});
 	});
 
-	describe('combined maxDepth, redact, truncation', () => {
-		test('serialization controls: maxDepth, redact, and truncate compose without error', () => {
+	describe('combined depth, redact, truncation', () => {
+		test('serialization controls: depth, redact, and truncate compose without error', () => {
 			// arrange
 			const result = serialize(
 				{ secret: 'password', label: 'hello world', nested: { a: 1 } },
 				new Graph(0),
 				new Set(),
 				cfg({
-					maxDepth: 1,
+					depth: 1,
 					redactors: [(key) => key === 'secret'],
 					truncate: 5,
 				}),

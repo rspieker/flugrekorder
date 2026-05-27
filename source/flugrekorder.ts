@@ -50,7 +50,7 @@ type CommonCreateOptions = {
 	recursive?: boolean;
 	only?: Array<string>;
 	filter?: (rekording: Rekording) => boolean;
-	maxDepth?: number;
+	depth?: number;
 	redact?: Redactor | Array<Redactor>;
 	truncate?: number;
 	bind?: boolean;
@@ -285,7 +285,7 @@ export function create<T extends Proxiable>(
 	const filter = options.filter ?? null;
 	const { redact } = options;
 	const serial: SerialConfig = {
-		maxDepth: options.maxDepth ?? Infinity,
+		depth: options.depth ?? Infinity,
 		redactors: redact ? (Array.isArray(redact) ? redact : [redact]) : [],
 		truncate: options.truncate ?? Infinity,
 	};

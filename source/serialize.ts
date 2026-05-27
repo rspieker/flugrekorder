@@ -9,13 +9,13 @@ import {
 } from './types';
 
 export type SerialConfig = {
-	maxDepth: number;
+	depth: number;
 	redactors: Array<Redactor>;
 	truncate: number;
 };
 
 export const defaults: SerialConfig = {
-	maxDepth: Infinity,
+	depth: Infinity,
 	redactors: [],
 	truncate: Infinity,
 };
@@ -53,7 +53,7 @@ function proxiable(
 
 	const targetNode = graph.getByTarget(<Proxiable>v);
 	if (targetNode !== undefined) return { $unwrap: { $proxy: targetNode.id } };
-	if (depth >= serial.maxDepth) return '[…]';
+	if (depth >= serial.depth) return '[…]';
 
 	// Plain (unproxied) arrays are safe to iterate directly.
 	if (Array.isArray(v)) {
