@@ -39,6 +39,7 @@
     "test:unit": "node --require ./test.register.cjs --test 'source/**/*.spec.ts'",
     "test:functional": "node --require ./test.register.cjs --test 'test/**/*.spec.ts'",
     "test:coverage": "odz -- node --require ./test.register.cjs --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
+    "test:coverage:html": "odz -r html -rd ./coverage -- node --require ./test.register.cjs --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
     "prepare": "husky || true"
   },
   "keywords": [
