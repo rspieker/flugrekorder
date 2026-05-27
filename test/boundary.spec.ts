@@ -447,7 +447,7 @@ describe('test/boundary', () => {
 			// uses it unchanged — no graph lookup needed.
 			const target = { fn() { throw new TypeError('Illegal invocation'); } };
 			const p = create(target, { callback: () => {} });
-			const fnProxy = (p as Improbability).fn as Function;
+			const fnProxy = (p as Improbability).fn as (...args: never) => unknown;
 			assert.throws(() => Reflect.apply(fnProxy, null, []), TypeError);
 		});
 
@@ -464,7 +464,7 @@ describe('test/boundary', () => {
 			};
 			isReal.add(obj);
 			const p = create(obj, { callback: () => {} });
-			const fnProxy = (p as Improbability).fn as Function;
+			const fnProxy = (p as Improbability).fn as (...args: never) => unknown;
 			assert.throws(() => Reflect.apply(fnProxy, foreignProxy, []), TypeError);
 		});
 
@@ -533,6 +533,7 @@ describe('test/boundary', () => {
 			// triggers a private-field TypeError is intentionally re-thrown.
 			class PrivateSetter {
 				#value = 0;
+				get val(): number { return this.#value; }
 				set val(v: number) { this.#value = v; }
 			}
 			const p = create(new PrivateSetter(), { callback: () => {} });
@@ -575,10 +576,10 @@ describe('test/boundary', () => {
 			// directly without a graph lookup.
 			class HasPrivate {
 				#value = 0;
-				increment() { this.#value++; }
+				increment() { return ++this.#value; }
 			}
 			const p = create(new HasPrivate(), { callback: () => {} });
-			const fnProxy = (p as Improbability).increment as Function;
+			const fnProxy = (p as Improbability).increment as (...args: never) => unknown;
 			assert.throws(() => Reflect.apply(fnProxy, null, []), TypeError);
 		});
 
@@ -587,11 +588,11 @@ describe('test/boundary', () => {
 			// returns undefined for it — the ?? fallback reuses the proxy as the receiver.
 			class HasPrivate {
 				#value = 0;
-				increment() { this.#value++; }
+				increment() { return ++this.#value; }
 			}
 			const foreignProxy = create({ unrelated: true }, { callback: () => {} });
 			const p = create(new HasPrivate(), { callback: () => {} });
-			const fnProxy = (p as Improbability).increment as Function;
+			const fnProxy = (p as Improbability).increment as (...args: never) => unknown;
 			assert.throws(() => Reflect.apply(fnProxy, foreignProxy, []), TypeError);
 		});
 
