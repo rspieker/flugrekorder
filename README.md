@@ -304,6 +304,7 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `maxDepth` | `number` | `Infinity` | Maximum depth for nested object serialization. Deeper values are replaced with `[…]`. |
 | `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
 | `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
+| `bind` | `boolean` | `undefined` | Controls how flugrekorder handles classes with `#` private fields. See [Private fields](#private-fields-bind). |
 
 One of `callback` or `stream` is required.
 
@@ -418,7 +419,7 @@ Every emitted record has this structure:
 ```ts
 type Rekording = {
   id: string;       // e.g. '#3'
-  trap: string;     // Reflect trap name: 'get', 'set', 'apply', …
+  trap: string;     // Reflect trap name: 'get', 'set', 'apply', … or a synthetic variant ('apply:native', 'apply:structure', 'apply:private')
   origin: {
     trap: 'get' | 'set' | 'defineProperty' | 'getOwnPropertyDescriptor';
     parent: string; // ID of the proxy this trap fired on
@@ -500,7 +501,7 @@ Promises cannot be proxied directly — native `.then()` checks for the `[[Promi
 
 Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `wrapKnown` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
 
-### Native boundary crossings (`apply:native`, `apply:structure`)
+### Native boundary crossings (`apply:native`, `apply:structure`, `apply:private`)
 
 Some native code rejects a `Proxy` as `this` or as an argument — V8 checks the real target at the C++ level before any JS runs. flugrekorder catches these failures, retries with the unwrapped real target, and records the crossing with a synthetic trap name so it remains visible in the rekording.
 
@@ -509,6 +510,38 @@ Some native code rejects a `Proxy` as `this` or as an argument — V8 checks the
 **`apply:structure`** — a function internally passed a proxied argument to the [Structured Clone Algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm) (`structuredClone`, `postMessage`, `history.pushState`, …), which threw `DataCloneError`. flugrekorder unwraps any proxy arguments in the call and retries. Unwrapped args appear as `{ $unwrap: { $proxy: "<id>" } }` in `args[2]`.
 
 **Remaining gap** — a *direct* `structuredClone(proxy)` call that never passes through a flugrekorder trap cannot be intercepted; V8 resolves the proxy before any JS runs. Use `structuredClone(getTarget(proxy))` at the call site as a workaround.
+
+### Private fields (`bind`)
+
+JavaScript `#` private fields are stored on the real instance. Accessing them with `this` as a Proxy throws `TypeError: Cannot read private member … from an object whose class did not declare it` — the engine enforces the class boundary at the field level.
+
+The `bind` option controls how flugrekorder responds:
+
+**`undefined` (default)** — flugrekorder tries normally. If a method or getter throws the private-field TypeError, it retries with the real target as `this`. Method calls record as `apply:private` instead of `apply` to signal the crossing; getter reads record transparently as `get`. This is the zero-friction path — no configuration needed, no crashes.
+
+**`bind: true`** — flugrekorder pre-binds all methods to the real target at `get` time, before any call is attempted. Calls record as plain `apply` and never throw. The trade-off: any property access that happens *inside* a method (e.g. `this.name`) runs on the real target, bypassing the proxy. Those internal reads and writes are not recorded.
+
+**`bind: false`** — flugrekorder never retries. If a method throws due to a `#` private field, the error propagates unchanged. Use this when you know the class has no `#` fields and want to ensure unexpected private-field errors surface rather than being silently retried.
+
+```ts
+class Counter {
+  #count = 0;
+  increment() { this.#count++; }
+  get value()  { return this.#count; }
+}
+
+// default: automatic retry, apply:private in recording
+const p = create(new Counter(), { callback });
+p.increment(); // records trap: 'apply:private'
+p.value;       // records trap: 'get'
+
+// bind: true: pre-bound, plain apply in recording, internals invisible
+const q = create(new Counter(), { bind: true, callback });
+q.increment(); // records trap: 'apply'
+q.value;       // records trap: 'get'
+```
+
+**The inverse** — a class that uses `#` private fields exclusively for its internal state is naturally opaque to flugrekorder: method calls are recorded but what happens inside them is not. This is an effective opt-out for library authors who want their implementation details to remain unobservable regardless of whether a caller wraps their object.
 
 ---
 

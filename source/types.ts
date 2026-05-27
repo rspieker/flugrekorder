@@ -13,7 +13,8 @@ export type CallTrap =
 	| 'construct'
 	| 'apply:native'
 	| 'construct:native'
-	| 'apply:structure';
+	| 'apply:structure'
+	| 'apply:private';
 
 /** Describes how a proxy was created — which trap fired, on which parent, and under which key or source. Null for root proxies. */
 export type Origin =

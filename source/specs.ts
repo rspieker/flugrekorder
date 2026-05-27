@@ -44,7 +44,7 @@ function isUnsafeBinding(v: unknown): boolean {
 export { isECMABuiltin, isUnsafeBinding };
 
 /** Pre/post hooks for a Reflect trap — transform args before dispatch and/or wrap the result. */
-type Spec = {
+export type Spec = {
 	pre?: (
 		args: Array<unknown>,
 		wrap: Wrapper,
@@ -53,23 +53,31 @@ type Spec = {
 	post?: (result: unknown, args: Array<unknown>, wrap: Wrapper) => unknown;
 };
 
-/** Per-trap hooks that transform arguments and results to maintain proxy transparency. */
-export const specs: Partial<Record<string, Spec>> = {
+/**
+ * Builds per-trap hooks for a proxy session.
+ * When `bind` is true, all method results and getter receivers are
+ * bound to the real target — the same strategy used for ECMAScript built-ins
+ * with internal slots, extended to user-defined classes with `#` private fields.
+ */
+export function makeSpecs(bind: boolean | undefined): Partial<Record<string, Spec>> {
+	return {
 	get: {
-		// For targets with internal slots (Map, Set, WeakMap, WeakSet, Date …),
-		// use the real target as the Reflect.get receiver so that getter-based
-		// slot checks (e.g. Map.prototype.size) don't throw TypeError.
+		// For targets with internal slots (Map, Set, WeakMap, WeakSet, Date …)
+		// or when bind is true, use the real target as the Reflect.get
+		// receiver so that getter-based slot checks and #private field reads
+		// (e.g. `get value() { return this.#count; }`) don't throw TypeError.
 		pre: ([target, key, receiver], _wrap, _known) => [
 			target,
 			key,
-			hasInternalSlots(target as Proxiable) ? target : receiver,
+			hasInternalSlots(target as Proxiable) || bind ? target : receiver,
 		],
 		// For the same targets, bind method results to the real target before
 		// wrapping so that apply-level slot checks (e.g. Map.prototype.get)
-		// also pass.  The bind cache ensures proxy stability.
+		// and #private field access inside methods also pass.
+		// The bind cache ensures proxy stability.
 		post: (result, [target, key], wrap) => {
 			if (key === 'prototype') return result;
-			if (hasInternalSlots(target as Proxiable)) {
+			if (hasInternalSlots(target as Proxiable) || bind) {
 				if (typeof result === 'function')
 					return wrap(
 						boundMethod(
@@ -157,4 +165,5 @@ export const specs: Partial<Record<string, Spec>> = {
 				: result;
 		},
 	},
-};
+	};
+}

@@ -464,6 +464,96 @@ describe('test/boundary', () => {
 		});
 	});
 
+	describe('private fields (#)', () => {
+		class Counter {
+			#count = 0;
+			increment() { this.#count++; }
+			get value() { return this.#count; }
+		}
+
+		test('default (undefined): method calls retry automatically and emit apply:private', () => {
+			const records: Array<Rekording> = [];
+			const p = create(new Counter(), { callback: (r) => records.push(r) });
+
+			(p as Improbability).increment();
+			(p as Improbability).increment();
+
+			const internals = records.filter((r) => r.trap === 'apply:private');
+			assert.strictEqual(internals.length, 2, 'both calls retried as apply:private');
+		});
+
+		test('default (undefined): getter reads retry automatically and record as get', () => {
+			const records: Array<Rekording> = [];
+			const p = create(new Counter(), { callback: (r) => records.push(r) });
+
+			(p as Improbability).increment();
+			const result = (p as Improbability).value;
+
+			assert.strictEqual(result, 1, 'getter returns correct value');
+			const getRecords = records.filter(
+				(r) => r.trap === 'get' && r.origin && 'key' in r.origin && r.origin.key === 'value',
+			);
+			assert.strictEqual(getRecords.length, 1, 'getter access recorded as get');
+		});
+
+		test('bind: false — no retry, throws on #private field access', () => {
+			const p = create(new Counter(), { bind: false, callback: () => {} });
+
+			assert.throws(() => (p as Improbability).increment(), TypeError);
+		});
+
+		test('bind: true — pre-binds methods, records as apply (no retry)', () => {
+			const records: Array<Rekording> = [];
+			const p = create(new Counter(), {
+				bind: true,
+				callback: (r) => records.push(r),
+			});
+
+			(p as Improbability).increment();
+			(p as Improbability).increment();
+
+			const applies = appliesFor(records, 'increment');
+			assert.strictEqual(applies.length, 2, 'both calls recorded as apply');
+			const internals = records.filter((r) => r.trap === 'apply:private');
+			assert.strictEqual(internals.length, 0, 'no apply:private — no retry needed');
+		});
+
+		test('bind: true — getters work and record as get', () => {
+			const records: Array<Rekording> = [];
+			const p = create(new Counter(), {
+				bind: true,
+				callback: (r) => records.push(r),
+			});
+
+			(p as Improbability).increment();
+			const result = (p as Improbability).value;
+
+			assert.strictEqual(result, 1, 'getter returns correct value');
+		});
+
+		test('internal #field reads inside methods are not recorded regardless of bind', () => {
+			each`
+				label             | bind
+				----------------- | ------------
+				default           | ${undefined}
+				bind:true  | ${true}
+			`(({ bind }: Improbability) => {
+				const records: Array<Rekording> = [];
+				const p = create(new Counter(), {
+					bind,
+					callback: (r) => records.push(r),
+				});
+
+				(p as Improbability).increment();
+
+				const privateReads = records.filter(
+					(r) => r.origin && 'key' in r.origin && String(r.origin.key).startsWith('#'),
+				);
+				assert.strictEqual(privateReads.length, 0, 'no #field access in recording');
+			});
+		});
+	});
+
 	describe('apply:structure', () => {
 		test('apply:structure is emitted when structuredClone rejects a proxied arg and retries with real target', () => {
 			// arrange

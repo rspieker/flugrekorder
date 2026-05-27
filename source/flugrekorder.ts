@@ -3,8 +3,8 @@ import type { GraphNode } from './graph';
 import { Graph } from './graph';
 import type { SerialConfig } from './serialize';
 import { serialize, origin as serializeOrigin } from './serialize';
-import type { Wrapper } from './specs';
-import { specs } from './specs';
+import type { Spec, Wrapper } from './specs';
+import { makeSpecs } from './specs';
 import type {
 	CallTrap,
 	Origin,
@@ -41,6 +41,8 @@ type Config = {
 	only: Set<string> | null;
 	filter: ((r: Rekording) => boolean) | null;
 	serial: SerialConfig;
+	specs: Partial<Record<string, Spec>>;
+	bind: boolean | undefined;
 };
 
 type CommonCreateOptions = {
@@ -51,6 +53,7 @@ type CommonCreateOptions = {
 	maxDepth?: number;
 	redact?: Redactor | Array<Redactor>;
 	truncate?: number;
+	bind?: boolean;
 };
 
 type StreamCreateOptions = CommonCreateOptions & { stream: Writable };
@@ -142,7 +145,7 @@ function makeProxy<T extends Proxiable>(
 					return v;
 				};
 
-				const spec = specs[trap] ?? {};
+				const spec = config.specs[trap] ?? {};
 				const preArgs = spec.pre
 					? spec.pre(rawArgs, wrap, known)
 					: rawArgs;
@@ -199,6 +202,37 @@ function makeProxy<T extends Proxiable>(
 							<object>preArgs[1],
 							unwrappedArgs,
 						);
+					} else if (
+						config.bind !== false &&
+						e instanceof TypeError &&
+						/private member/i.test(String(e))
+					) {
+						if (trap === 'apply') {
+							effectiveTrap = 'apply:private';
+							const realThis = isProxiable(preArgs[1])
+								? (graph.getByProxy(<Proxiable>preArgs[1])
+										?.target ?? preArgs[1])
+								: preArgs[1];
+							effectiveArgs = [preArgs[0], realThis, preArgs[2]];
+							childOrigin = {
+								trap: <CallTrap>effectiveTrap,
+								source: selfId,
+							};
+							result = Reflect.apply(
+								<(...a: Array<unknown>) => unknown>preArgs[0],
+								realThis,
+								<Array<unknown>>preArgs[2],
+							);
+						} else if (trap === 'get') {
+							// Getter reads a #private field; retry with real target as receiver
+							result = Reflect.get(
+								<object>preArgs[0],
+								<PropertyKey>preArgs[1],
+								preArgs[0],
+							);
+						} else {
+							throw e;
+						}
 					} else {
 						throw e;
 					}
@@ -256,11 +290,12 @@ export function create<T extends Proxiable>(
 		truncate: options.truncate ?? Infinity,
 	};
 	const graph = new Graph(options.id ?? 0);
+	const specs = makeSpecs(options.bind);
 
 	return makeProxy(
 		target,
 		graph,
-		{ write, recursive, only, filter, serial },
+		{ write, recursive, only, filter, serial, specs, bind: options.bind },
 		null,
 	);
 }
