@@ -6,6 +6,36 @@ For a higher-level explanation of the final design, see the [How it works](READM
 
 ---
 
+## Proxy mechanics
+
+A `Proxy` wraps a real target object. Every operation the caller performs on the proxy — property read, assignment, function call, construction — is intercepted by the JS engine and routed to the corresponding named trap. The trap calls `Reflect[trap]` to forward the operation to the real target and returns the result.
+
+```mermaid
+flowchart LR
+    I[Interaction] --> P
+    P{Proxy} -->|get| H
+    P -->|set| H
+    P -->|has| H
+    P -->|deleteProperty| H
+    P -->|defineProperty| H
+    P -->|getOwnPropertyDescriptor| H
+    P -->|ownKeys| H
+    P -->|getPrototypeOf| H
+    P -->|setPrototypeOf| H
+    P -->|isExtensible| H
+    P -->|preventExtensions| H
+    P -->|apply| H
+    P -->|construct| H
+    H([handler]) -->|Reflect| T([real target])
+    H --> O
+    T -->|value| H
+    O[callback/stream]
+```
+
+If no handler is defined for a trap, the JS engine forwards directly to the target — a Proxy with an empty handler is fully transparent.
+
+---
+
 ## Approaches tried
 
 ### Path-tracking stream recorder
@@ -60,6 +90,34 @@ Simplified origin to `string | symbol | null`, smaller memory footprint, inline 
 
 ## What made it into the final design
 
+The trap handler in `makeProxy` follows this flow for every intercepted operation:
+
+```mermaid
+flowchart TD
+    A([trap fires]) --> B{spec.pre?}
+    B -- yes --> C[pre: transform rawArgs]
+    B -- no --> D[preArgs = rawArgs]
+    C --> E
+    D --> E
+
+    E["Reflect[trap](...preArgs)"] --> F{error?}
+    F -- no --> G{spec.post?}
+    F -- "TypeError: illegal invocation" --> H["swap thisArg → real target<br/>trap → apply:native"]
+    F -- "DOMException: DataCloneError" --> I["unwrap proxy args<br/>trap → apply:structure"]
+    F -- other --> J([rethrow])
+    H --> G
+    I --> G
+
+    G -- yes --> K[post: transform result]
+    G -- no --> L[output = result]
+    K --> L
+
+    L --> M["serialize → Rekording"]
+    M --> N{filter?}
+    N -- pass --> O([config.write])
+    N -- fail --> P([drop])
+```
+
 | Decision | Rationale |
 |---|---|
 | Structured `Origin { trap, parent, key }` | Survives GC; distinguishes trap types; reconstructible from records alone |
@@ -86,6 +144,40 @@ Simplified origin to `string | symbol | null`, smaller memory footprint, inline 
 ---
 
 ## Notable additions with no predecessor
+
+Each `create()` call produces one `Graph`, which holds three lookup indices over `GraphNode` entries. Every node links a proxy to its original target and its `Origin` — the record of how the proxy was reached:
+
+```mermaid
+classDiagram
+    direction LR
+    class Graph {
+        +register(proxy, target, origin, id)
+        +getById(id) GraphNode
+        +getByProxy(proxy) GraphNode
+        +getByTarget(target) GraphNode
+        +nextId() string
+    }
+    class GraphNode {
+        +id: string
+        +proxy: Proxiable
+        +target: Proxiable
+        +origin: Origin
+    }
+    class PropertyOrigin {
+        +trap: PropertyTrap
+        +parent: string
+        +key: string|symbol
+    }
+    class CallOrigin {
+        +trap: CallTrap
+        +source: string
+    }
+    Graph "1" *-- "*" GraphNode : byId · byProxy · byTarget
+    GraphNode --> PropertyOrigin : property trap (get/set/…)
+    GraphNode --> CallOrigin : call trap (apply/construct)
+```
+
+`origin` is `null` for the root node (the value passed directly to `create()`).
 
 **Graph class** — Session-scoped registries (`byId`, `byProxy`, `byTarget`) per `create()` call, making each proxied tree GC-eligible and self-contained. Earlier approaches used module-level maps, causing memory leaks under repeated use.
 
