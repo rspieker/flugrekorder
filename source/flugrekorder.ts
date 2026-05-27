@@ -12,8 +12,10 @@ import type {
 	Proxiable,
 	Redactor,
 	Rekording,
+	RetryFlow,
 } from './types';
 import { isProxiable } from './types';
+import { createErrorGuard } from './errors';
 
 export { format } from './format';
 export {
@@ -33,6 +35,80 @@ export type {
 	Serialized,
 } from './types';
 export { isProxiable } from './types';
+
+/** Unwraps a proxiable value to its underlying target if it's a known proxy. */
+const unwrap = (value: unknown, graph: Graph | undefined): unknown =>
+	!graph || !isProxiable(value)
+		? value
+		: (graph.getByProxy(<Proxiable>value)?.target ?? value);
+
+const isDataCloneDOMException = createErrorGuard('DataCloneError');
+const isTypeErrorPrivateMember = createErrorGuard(
+	'TypeError',
+	/private member/i,
+);
+const isTypeErrorIllegalInvocation = createErrorGuard(
+	'TypeError',
+	/illegal invocation/i,
+);
+/** Retry handlers for native boundary crossings — defined once at module level. */
+const retryFlows: Array<RetryFlow> = [
+	{
+		// Native methods (console.log, DOM APIs, http.Server) check the internal
+		// [[Receiver]] slot and throw "Illegal invocation" when called through a
+		// proxy. Unwrap the real target from the graph and retry as the receiver.
+		is: (trap, error) =>
+			trap === 'apply' && isTypeErrorIllegalInvocation(error),
+		trap: 'apply:native',
+		handle: (graph, fn, thisArg, argList) => {
+			const realThis = unwrap(thisArg, graph);
+			return {
+				args: [fn, realThis, argList],
+				result: Reflect.apply(fn, realThis, argList),
+			};
+		},
+	},
+	{
+		// structuredClone and postMessage can't clone proxy objects — they throw a
+		// DataCloneError. Unwrap any proxy arguments to their real targets and retry.
+		is: (trap, error) => trap === 'apply' && isDataCloneDOMException(error),
+		trap: 'apply:structure',
+		handle: (graph, fn, thisArg, argList) => {
+			const unwrappedArgs = argList.map((arg) => unwrap(arg, graph));
+			return {
+				args: [fn, thisArg, unwrappedArgs],
+				result: Reflect.apply(fn, thisArg, unwrappedArgs),
+			};
+		},
+	},
+	{
+		// Private fields (#field) use brand checking — accessing #field on a proxy
+		// (rather than the original instance) throws "Cannot read private member".
+		// Unwrap the real instance from the graph and use it as the receiver.
+		is: (trap, error, bind) =>
+			bind !== false &&
+			trap === 'apply' &&
+			isTypeErrorPrivateMember(error),
+		trap: 'apply:private',
+		handle: (graph, fn, thisArg, argList) => {
+			const realThis = unwrap(thisArg, graph);
+			return {
+				args: [fn, realThis, argList],
+				result: Reflect.apply(fn, realThis, argList),
+			};
+		},
+	},
+	{
+		// A getter that reads a #private field hits the same brand check, but the
+		// apply retry doesn't apply here. Re-invoke Reflect.get with the real target
+		// as its own receiver so the brand check passes.
+		is: (trap, error, bind) =>
+			bind !== false && trap === 'get' && isTypeErrorPrivateMember(error),
+		handle: (_graph, target, propertyKey) => ({
+			result: Reflect.get(target, propertyKey, target),
+		}),
+	},
+];
 
 /** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
 type Config = {
@@ -159,80 +235,27 @@ function makeProxy<T extends Proxiable>(
 						Reflect[trap]
 					))(...preArgs);
 				} catch (e) {
-					if (
-						trap === 'apply' &&
-						e instanceof TypeError &&
-						/illegal invocation/i.test(String(e))
-					) {
-						effectiveTrap = 'apply:native';
-						const realThis = isProxiable(preArgs[1])
-							? (graph.getByProxy(<Proxiable>preArgs[1])
-									?.target ?? preArgs[1])
-							: preArgs[1];
-						effectiveArgs = [preArgs[0], realThis, preArgs[2]];
-						childOrigin = {
-							trap: <CallTrap>effectiveTrap,
-							source: selfId,
-						};
-						result = Reflect.apply(
-							<(...a: Array<unknown>) => unknown>preArgs[0],
-							realThis,
-							<Array<unknown>>preArgs[2],
-						);
-					} else if (
-						trap === 'apply' &&
-						e instanceof DOMException &&
-						e.name === 'DataCloneError'
-					) {
-						effectiveTrap = 'apply:structure';
-						const unwrappedArgs = (<Array<unknown>>preArgs[2]).map(
-							(arg) =>
-								isProxiable(arg)
-									? (graph.getByProxy(<Proxiable>arg)
-											?.target ?? arg)
-									: arg,
-						);
-						effectiveArgs = [preArgs[0], preArgs[1], unwrappedArgs];
-						childOrigin = {
-							trap: <CallTrap>effectiveTrap,
-							source: selfId,
-						};
-						result = Reflect.apply(
-							<(...a: Array<unknown>) => unknown>preArgs[0],
-							<object>preArgs[1],
-							unwrappedArgs,
-						);
-					} else if (
-						config.bind !== false &&
-						e instanceof TypeError &&
-						/private member/i.test(String(e))
-					) {
-						if (trap === 'apply') {
-							effectiveTrap = 'apply:private';
-							const realThis = isProxiable(preArgs[1])
-								? (graph.getByProxy(<Proxiable>preArgs[1])
-										?.target ?? preArgs[1])
-								: preArgs[1];
-							effectiveArgs = [preArgs[0], realThis, preArgs[2]];
+					const flow = retryFlows.find(({ is }) =>
+						is(trap, e, config.bind),
+					);
+
+					if (flow) {
+						// is() matched preArgs to this flow's parameter shape at runtime;
+						// the union can't express that statically.
+						const invoke = flow.handle as (
+							g: Graph | undefined,
+							...a: Array<unknown>
+						) => { args?: Array<unknown>; result: unknown };
+						const output = invoke(graph, ...preArgs);
+						if (flow.trap) {
+							effectiveTrap = flow.trap;
 							childOrigin = {
-								trap: <CallTrap>effectiveTrap,
+								trap: <CallTrap>flow.trap,
 								source: selfId,
 							};
-							result = Reflect.apply(
-								<(...a: Array<unknown>) => unknown>preArgs[0],
-								realThis,
-								<Array<unknown>>preArgs[2],
-							);
-						} else if (trap === 'get') {
-							// Getter reads a #private field; retry with real target as receiver
-							result = Reflect.get(
-								<object>preArgs[0],
-								<PropertyKey>preArgs[1],
-								preArgs[0],
-							);
-						} else {
-							throw e;
 						}
+						if (output?.args) effectiveArgs = output.args;
+						result = output.result;
 					} else {
 						throw e;
 					}

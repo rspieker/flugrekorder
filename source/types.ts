@@ -1,3 +1,4 @@
+import type { Graph } from './graph';
 export type Proxiable = object;
 
 /** Reflect traps that operate on a property — carry a parent ID and key in their origin. */
@@ -69,3 +70,32 @@ export type Rekording = {
 	result: Serialized;
 	timestamp: number;
 };
+
+type Fn = (...args: Array<unknown>) => unknown;
+
+/** Describes a retry handler for an apply trap boundary crossing. */
+type ApplyRetryFlow = {
+	is: (trap: string, error: unknown, bind?: boolean) => boolean;
+	trap?: string;
+	handle: (
+		graph: Graph | undefined,
+		fn: Fn,
+		thisArg: unknown,
+		argList: Array<unknown>,
+	) => { args: [Fn, unknown, Array<unknown>]; result: unknown };
+};
+
+/** Describes a retry handler for a get trap boundary crossing. */
+type GetRetryFlow = {
+	is: (trap: string, error: unknown, bind?: boolean) => boolean;
+	trap?: never;
+	handle: (
+		graph: Graph | undefined,
+		target: object,
+		propertyKey: PropertyKey,
+		receiver: unknown,
+	) => { result: unknown };
+};
+
+/** Describes a native boundary crossing retry handler. */
+export type RetryFlow = ApplyRetryFlow | GetRetryFlow;
