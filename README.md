@@ -4,12 +4,33 @@
 [![CI](https://github.com/rspieker/flugrekorder/actions/workflows/tests.yml/badge.svg)](https://github.com/rspieker/flugrekorder/actions/workflows/tests.yml)
 [![license](https://img.shields.io/npm/l/flugrekorder)](LICENSE)
 
+> Following a hunch but not sure if you need a microscope, a periscope, or a telescope? Zoom in, peek around, look beyond — all at once.
+
 > A tireless, impartial, punctilious, incurious spectator. It witnesses every interaction. It takes note. It understands nothing. Remarkably, this is a feature.
 
 Wraps any object, function, or array in a transparent `Proxy` and emits a structured `Rekording` for every Reflect trap that fires — get, set, apply, construct, and all others.
 
 Design principle: **record structure, relay behaviour, understand nothing.**
 The recorder has no knowledge of what it wraps. If a dependency adds new methods, they are recorded automatically.
+
+---
+
+## When to use this
+
+- A side effect came knocking. Where did it come from? Was it invited? When? By whom?
+- Here, we observe the code in its digital habitat. Undisturbed. Unmodified. Doing — what?
+- The scriptures tell one story. The scribes tell another.
+- You want a record. Not a theory, not a phantom — a record.
+- When the whole district looks suspicious, bring them all to the archives, every soul, every mouse, every elephant. They all give a statement. They don't get a choice.
+
+---
+
+## Why not…
+
+- **`console.log`** — you have to know where to put it first.
+- **Mocks and spies** — they replace the real thing; you're no longer observing, you're performing.
+- **Monkey-patching** — one property at a time, brittle, and you'll miss what you didn't think to patch.
+- **A debugger** — interactive, ephemeral, and gone the moment you step past it.
 
 ---
 
@@ -26,7 +47,7 @@ npm install flugrekorder
 ```ts
 import { create, type Rekording } from 'flugrekorder';
 
-const records: Rekording[] = [];
+const records: Array<Rekording> = [];
 const p = create({ greet: (name: string) => `hello, ${name}` }, {
   callback: (r) => records.push(r),
 });
@@ -40,6 +61,224 @@ console.log(records.map((r) => `${r.id} ${r.trap}`));
 
 ---
 
+## Quick useful patterns
+
+### Watch sort rewrite your array
+
+`sort` reads every element to compare, then writes every position back. Most developers think of it as a single operation. It isn't.
+
+```ts
+import { create, format } from 'flugrekorder';
+
+const todos = [
+  '🔲 document quick examples',
+  '🔲 release next version',
+  '✅ build flugrekorder',
+];
+let tracked!: typeof todos;
+tracked = create(todos, {
+  only: ['get', 'set', 'apply'],
+  callback: (r) => console.log(format(r, tracked)),
+});
+
+tracked[0] = tracked[0].replace('🔲', '✅');
+tracked.sort();
+```
+
+Output:
+```
+0 → 🔲 document quick examples
+0 = ✅ document quick examples
+sort → sort
+length → 3
+0 → ✅ document quick examples
+1 → 🔲 release next version
+2 → ✅ build flugrekorder
+0 = ✅ build flugrekorder
+1 = ✅ document quick examples
+2 = 🔲 release next version
+sort()
+```
+
+The read phase (`→`) and write phase (`=`) are visible in sequence. After marking index `0` as done, `sort` reads all three items — including `✅ build flugrekorder` sitting at index `2` — then rewrites every position. The completed item from index `2` lands at `0` because `✅` sorts before `🔲`.
+
+---
+
+### What hint JavaScript passes when it coerces your object
+
+Every time JavaScript converts an object to a primitive, it calls `Symbol.toPrimitive` with a hint — `'string'`, `'number'`, or `'default'`. Track a `Date` to see which context passes which:
+
+```ts
+import { create, format } from 'flugrekorder';
+
+const date = new Date('2025-01-15T12:00:00Z');
+let tracked!: typeof date;
+tracked = create(date, {
+  only: ['get', 'apply'],
+  callback: (r) => console.log(format(r, tracked)),
+});
+
+`${tracked}`;   // template literal
+tracked + '';   // + operator
++tracked;       // unary plus
+```
+
+Output:
+```
+Symbol(Symbol.toPrimitive) → Symbol(Symbol.toPrimitive)
+Symbol(Symbol.toPrimitive)(string)
+Symbol(Symbol.toPrimitive) → Symbol(Symbol.toPrimitive)
+Symbol(Symbol.toPrimitive)(default)
+Symbol(Symbol.toPrimitive) → Symbol(Symbol.toPrimitive)
+Symbol(Symbol.toPrimitive)(number)
+```
+
+`tracked + ''` passes `'default'`, not `'string'` — most developers expect string-hint here. For `Date` both resolve to the same string representation, but that is a `Date`-specific choice, not a JavaScript guarantee.
+
+---
+
+### What survives `JSON.stringify` — and what doesn't
+
+`toJSON` lets an object control its own serialisation. Track one to see exactly what it reads, what it returns, and which values quietly disappear on the way to JSON.
+
+```ts
+import { create, format } from 'flugrekorder';
+
+const config: Record<string, Record<string, unknown>> = {
+  db: {
+    host: 'localhost',
+    port: 27017,
+    database: 'example',
+    timeout: Infinity,
+    toJSON() {
+      return {
+        dsn: `${this['protocol'] ?? 'mongodb'}://${this['host']}:${this['port']}/${this['database']}`,
+        timeout: this['timeout'],
+      };
+    },
+  },
+};
+
+let tracked!: typeof config;
+tracked = create(config, {
+  only: ['get', 'apply'],
+  callback: (r) => console.log(format(r, tracked)),
+});
+
+console.log(JSON.stringify(tracked));
+```
+
+Output:
+```
+toJSON → undefined
+db → db
+db.toJSON → db.toJSON
+db.protocol → undefined
+db.host → localhost
+db.port → 27017
+db.database → example
+db.timeout → Infinity
+db.toJSON(db)
+db.toJSON().dsn → mongodb://localhost:27017/example
+db.toJSON().timeout → Infinity
+
+{"db":{"dsn":"mongodb://localhost:27017/example","timeout":null}}
+```
+
+`protocol` was read but never set — `toJSON` had a hidden dependency. `timeout` recorded faithfully as `Infinity` throughout, then silently coerced to `null` in the final JSON because `Infinity` is not valid JSON.
+
+---
+
+### How many comparisons does `sort` need?
+
+Sorting feels atomic — pass an array, get it back in order. But `sort` calls your comparator repeatedly, and the number of calls — and their order — is what the algorithm actually looks like. Writing every call to disk is an easy way to count them and examine the sequence afterwards.
+
+```ts
+import { createWriteStream } from 'node:fs';
+import { create } from 'flugrekorder';
+
+const words = ['banana', 'apple', 'elderberry', 'cherry', 'date', 'fig'];
+
+let compare!: (a: string, b: string) => number;
+compare = create((a: string, b: string) => a.localeCompare(b), {
+  only: ['apply'],
+  stream: createWriteStream('comparisons.ndjson'),
+});
+
+words.sort(compare);
+console.log(words);
+```
+
+Output:
+```
+[ 'apple', 'banana', 'cherry', 'date', 'elderberry', 'fig' ]
+```
+
+`comparisons.ndjson` — 9 lines written, first two shown:
+
+```json
+{"id":"#2","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["apple","banana"]],"result":-1,"timestamp":1748091234567}
+{"id":"#3","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["elderberry","apple"]],"result":1,"timestamp":1748091234568}
+...
+```
+
+For 6 words, V8 made 9 comparisons — not 15 (the bubble sort worst case for 6 elements). The pattern is binary insertion sort: each word is binary-searched into position in the already-sorted prefix. `args[2]` holds the pair being compared; `result` is the comparator's return value. Swap the input for a larger or reverse-sorted list and the count — and the pattern — change.
+
+---
+
+### Request logging
+
+An HTTP server handles requests concurrently. `callback` accumulates records per request in memory — `stream` writes directly to disk as each trap fires. Custom IDs make records from concurrent requests separable: every record carries its request's namespace.
+
+```ts
+import { createServer } from 'node:http';
+import { createWriteStream } from 'node:fs';
+import { create } from 'flugrekorder';
+
+let n = 0;
+const log = createWriteStream('requests.ndjson');
+
+const server = createServer((req, res) => {
+  let seq = 0;
+  const rid = `req${++n}`;
+  let r!: typeof req;
+  r = create(req, { id: () => `${rid}:${++seq}`, stream: log });
+
+  if (r.url === '/hello') {
+    res.end(`Hello, ${r.method}!`);
+  } else {
+    res.statusCode = 404;
+    res.end(`not found: ${r.method}: ${r.url}`);
+  }
+});
+
+await new Promise<void>(resolve => server.listen(3000, resolve));
+console.log((await fetch('http://localhost:3000/hello')).status);
+console.log((await fetch('http://localhost:3000/missing')).status);
+server.close();
+```
+
+Output:
+```
+200
+404
+```
+
+`requests.ndjson` — 5 lines written:
+
+```json
+{"id":"req1:2","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"url",{"$proxy":"req1:1"}],"result":"/hello","timestamp":1748091234100}
+{"id":"req1:3","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"method",{"$proxy":"req1:1"}],"result":"GET","timestamp":1748091234101}
+{"id":"req2:2","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234150}
+{"id":"req2:3","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"method",{"$proxy":"req2:1"}],"result":"GET","timestamp":1748091234151}
+{"id":"req2:4","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234151}
+```
+
+Certainly not the average request log, but a full picture of what happened when, where and why.
+`req1:*` and `req2:*` are distinct namespaces in the same file. `args[0]` carries `$unwrap` — the raw request object (not the proxy) — because that is what the Reflect `get` trap receives as its target. `args[2]` is the proxy receiver. The 404 handler reads `url` twice and `method` once — exactly as written. Under concurrent load the records interleave by timestamp, but `grep req1` always isolates one request.
+
+---
+
 ## API
 
 ### `create(target, options)`
@@ -49,7 +288,7 @@ Wraps `target` in a recording proxy and returns it. The proxy is transparent —
 ```ts
 import { create, type Rekording } from 'flugrekorder';
 
-const records: Rekording[] = [];
+const records: Array<Rekording> = [];
 const p = create(target, { callback: (r) => records.push(r) });
 ```
 
@@ -61,7 +300,11 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON. Mutually exclusive with `callback`. |
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
-| `only` | `string[]` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
+| `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
+| `depth` | `number` | `Infinity` | Maximum depth for nested object serialization. Deeper values are replaced with `[…]`. |
+| `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
+| `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
+| `bind` | `boolean` | `undefined` | Controls how flugrekorder handles classes with `#` private fields. See [Private fields](#private-fields-bind). |
 
 One of `callback` or `stream` is required.
 
@@ -127,8 +370,8 @@ import { create, getPath } from 'flugrekorder';
 
 const p = create({ a: { b: { fn: () => ({ v: 1 }) } } }, { callback: () => {} });
 
-getPath(p);           // ''
-getPath(p.a);         // 'a'
+getPath(p);          // ''
+getPath(p.a);        // 'a'
 getPath(p.a.b.fn);   // 'a.b.fn'
 getPath(p.a.b.fn()); // 'a.b.fn()'
 ```
@@ -158,7 +401,7 @@ Looks up a proxy by its recorded ID within the same graph as `proxy`. Useful for
 ```ts
 import { create, getProxyById, type Rekording } from 'flugrekorder';
 
-const records: Rekording[] = [];
+const records: Array<Rekording> = [];
 const p = create({ nested: { x: 1 } }, { callback: (r) => records.push(r) });
 
 p.nested; // triggers a get, result is { $proxy: '#2' }
@@ -176,17 +419,18 @@ Every emitted record has this structure:
 ```ts
 type Rekording = {
   id: string;       // e.g. '#3'
-  trap: string;     // Reflect trap name: 'get', 'set', 'apply', …
+  trap: string;     // Reflect trap name: 'get', 'set', 'apply', … or a synthetic variant ('apply:native', 'apply:structure', 'apply:private')
   origin: {
     trap: 'get' | 'set' | 'defineProperty' | 'getOwnPropertyDescriptor';
     parent: string; // ID of the proxy this trap fired on
     key: string;    // property name (symbols are serialised to their string form)
   } | {
     trap: 'apply' | 'construct';
-    source: string; // ID of the function/constructor proxy that was called
-  } | null;         // null for the root proxy
-  args: Serialized[];   // trap arguments
-  result: Serialized;   // return value
+    source: string;        // ID of the function/constructor proxy that was called
+  } | null;                // null for the root proxy
+  args: Array<Serialized>; // trap arguments
+  result: Serialized;      // return value
+  timestamp: number;       // Date.now() at the moment the trap fired
 };
 ```
 
@@ -257,98 +501,136 @@ Promises cannot be proxied directly — native `.then()` checks for the `[[Promi
 
 Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `wrapKnown` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
 
----
+### Native boundary crossings (`apply:native`, `apply:structure`, `apply:private`)
 
-## Examples
+Some native code rejects a `Proxy` as `this` or as an argument — V8 checks the real target at the C++ level before any JS runs. flugrekorder catches these failures, retries with the unwrapped real target, and records the crossing with a synthetic trap name so it remains visible in the rekording.
 
-### Stream interactions to a file (NDJSON)
+**`apply:native`** — a C++ method threw `TypeError: Illegal invocation` because `this` was a Proxy. The real target is substituted for `this` and the call is retried. The unwrapped `this` appears as `{ $unwrap: { $proxy: "<id>" } }` in `args[1]`.
 
-```ts
-import { createWriteStream } from 'node:fs';
-import { create } from 'flugrekorder';
+**`apply:structure`** — a function internally passed a proxied argument to the [Structured Clone Algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm) (`structuredClone`, `postMessage`, `history.pushState`, …), which threw `DataCloneError`. flugrekorder unwraps any proxy arguments in the call and retries. Unwrapped args appear as `{ $unwrap: { $proxy: "<id>" } }` in `args[2]`.
 
-const log = createWriteStream('interactions.ndjson');
-const tracked = create(myService, { stream: log });
+**Remaining gap** — a *direct* `structuredClone(proxy)` call that never passes through a flugrekorder trap cannot be intercepted; V8 resolves the proxy before any JS runs. Use `structuredClone(getTarget(proxy))` at the call site as a workaround.
 
-// Every trap now writes one JSON line to interactions.ndjson
-await tracked.processOrder(orderId);
-```
+### Private fields (`bind`)
 
-### Record only method calls
+JavaScript `#` private fields are stored on the real instance. Accessing them with `this` as a Proxy throws `TypeError: Cannot read private member … from an object whose class did not declare it` — the engine enforces the class boundary at the field level.
 
-```ts
-import { create, type Rekording } from 'flugrekorder';
+The `bind` option controls how flugrekorder responds:
 
-const records: Rekording[] = [];
-const p = create(myApi, {
-  callback: (r) => records.push(r),
-  only: ['apply'],
-});
+**`undefined` (default)** — flugrekorder tries normally. If a method or getter throws the private-field TypeError, it retries with the real target as `this`. Method calls record as `apply:private` instead of `apply` to signal the crossing; getter reads record transparently as `get`. This is the zero-friction path — no configuration needed, no crashes.
 
-p.users.find({ active: true });
+**`bind: true`** — flugrekorder pre-binds all methods to the real target at `get` time, before any call is attempted. Calls record as plain `apply` and never throw. The trade-off: any property access that happens *inside* a method (e.g. `this.name`) runs on the real target, bypassing the proxy. Those internal reads and writes are not recorded.
 
-// records contains only 'apply' entries — one per function call
-console.log(records.length); // 1
-```
-
-### Inspect the call graph after the fact
+**`bind: false`** — flugrekorder never retries. If a method throws due to a `#` private field, the error propagates unchanged. Use this when you know the class has no `#` fields and want to ensure unexpected private-field errors surface rather than being silently retried.
 
 ```ts
-import { create, getPath, getProxyById, type Rekording } from 'flugrekorder';
+class Counter {
+  #count = 0;
+  increment() { this.#count++; }
+  get value()  { return this.#count; }
+}
 
-const records: Rekording[] = [];
-const p = create(myService, { callback: (r) => records.push(r) });
+// default: automatic retry, apply:private in recording
+const p = create(new Counter(), { callback });
+p.increment(); // records trap: 'apply:private'
+p.value;       // records trap: 'get'
 
-myService.run(p);
-
-// Find every method call and display its path
-records
-  .filter((r) => r.trap === 'apply')
-  .forEach((r) => {
-    if (r.origin && 'source' in r.origin) {
-      const fn = getProxyById(r.origin.source, p);
-      if (fn) console.log('called:', getPath(fn));
-    }
-  });
+// bind: true: pre-bound, plain apply in recording, internals invisible
+const q = create(new Counter(), { bind: true, callback });
+q.increment(); // records trap: 'apply'
+q.value;       // records trap: 'get'
 ```
 
-### Custom ID sequence
-
-```ts
-import { create } from 'flugrekorder';
-
-// Prefix IDs with a session token for correlation across multiple recordings
-const session = crypto.randomUUID();
-let n = 0;
-const p = create(target, {
-  callback: (r) => console.log(r.id),
-  id: () => `${session}:${++n}`,
-});
-```
+**The inverse** — a class that uses `#` private fields exclusively for its internal state is naturally opaque to flugrekorder: method calls are recorded but what happens inside them is not. This is an effective opt-out for library authors who want their implementation details to remain unobservable regardless of whether a caller wraps their object.
 
 ---
 
 ## Types
 
+### `Proxiable`
+Any value that can be proxied: objects or functions.
+
 ```ts
-export type Proxiable = object | Function;
+type Proxiable = object | Function;
+```
 
-export type Serialized =
-  | string | number | boolean | bigint | null | undefined
-  | { readonly $proxy: string }
-  | Serialized[]
-  | { [key: string]: Serialized };
+### `Redactor`
+Function that decides how to handle sensitive values during serialization.
 
-export type Origin =
+```ts
+type Redactor = (
+  key: string | symbol,
+  value: unknown,
+  target: object,
+) => string | boolean | null;
+```
+
+```ts
+/**
+ * @param key - Property key being serialized
+ * @param value - Value at that key
+ * @param target - Parent object containing the key
+ * @returns `true` to replace with `"[redacted]"`, `false` to keep as-is,
+ *          a string for custom replacement, or `null` to drop the key
+ */
+const hideSecrets: Redactor = (key) => key === 'password';
+const redactSecrets: Redactor = (key, value) => key === 'password' && '*'.repeat(String(value).length);
+const dropSecrets: Redactor = (key) => key === 'password' ? null : false;
+```
+
+### `Origin`
+Describes how a proxy was created. Every proxied value carries its `Origin` so you can trace where it came from in the proxy tree. `null` for the root proxy.
+
+```ts
+type Origin =
   | { trap: 'get' | 'set' | 'defineProperty' | 'getOwnPropertyDescriptor'; parent: string; key: string | symbol }
   | { trap: 'apply' | 'construct'; source: string }
   | null;
+```
 
-export type Rekording = {
+| Field | Type | Description |
+|-------|------|-------------|
+| `trap` | `string` | The trap that created this proxy |
+| `parent` | `string` | Proxy ID of the parent that returned this value |
+| `key` | `string \| symbol` | Property key accessed |
+| `source` | `string` | Proxy ID of the function that returned this value |
+
+### `Rekording`
+A single recorded interaction from a proxy trap. Every trap firing produces one `Rekording` emitted to your callback or stream.
+
+```ts
+type Rekording = {
   id: string;
   trap: string;
-  origin: { trap: string; parent?: string; key?: string; source?: string } | null;
-  args: Serialized[];
+  origin: Origin;
+  args: Array<Serialized>;
   result: Serialized;
+  timestamp: number;
 };
+```
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `id` | `string` | Unique identifier for this record |
+| `trap` | `string` | Reflect trap name (`get`, `set`, `apply`, etc.) |
+| `origin` | `Origin` | How this proxy was created |
+| `args` | `Array<Serialized>` | Arguments passed to the trap |
+| `result` | `Serialized` | Return value from the trap |
+| `timestamp` | `number` | When the trap fired |
+
+### `Serialized`
+Serialized recorded values can be:
+- Primitives: `string`, `number`, `boolean`, `bigint`, `null`, `undefined`
+- Proxy reference: `{ $proxy: string }` — a proxiable value known to the graph, referenced by ID
+- Raw target reference: `{ $unwrap: { $proxy: string } }` — the real target behind a proxy, recorded when a native boundary crossing required unwrapping (see [`apply:native`](#native-boundary-crossings-and-applynative))
+- Array of `Serialized`
+- Plain object with `Serialized` values
+
+```ts
+type Serialized =
+  | string | number | boolean | bigint | null | undefined
+  | { readonly $proxy: string }
+  | { readonly $unwrap: { readonly $proxy: string } }
+  | Array<Serialized>
+  | { [key: string]: Serialized };
 ```
