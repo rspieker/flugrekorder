@@ -1,6 +1,6 @@
 {
   "name": "flugrekorder",
-  "version": "1.1.0",
+  "version": "1.2.0-beta.0",
   "publishConfig": {
     "access": "public"
   },
@@ -29,21 +29,17 @@
   ],
   "scripts": {
     "build": "tsup",
-    "lint": "biome lint source",
-    "format": "biome format source",
-    "check": "biome check source",
-    "check:write": "biome check --write source",
+    "lint": "biome lint",
+    "format": "biome format",
+    "check": "biome check",
+    "check:write": "biome check --write",
     "release": "release-it --ci",
     "prepublishOnly": "npm run build",
-    "test": "run-script-os",
-    "test:nix": "ts-node --project tsconfig.test.json node_modules/tape/bin/tape 'source/**/*.spec.ts' | tap-arc",
-    "test:win32": "ts-node --project tsconfig.test.json node_modules/tape/bin/tape source/**/*.spec.ts | tap-arc",
-    "test:coverage": "run-script-os",
-    "test:coverage:nix": "TS_NODE_PROJECT=tsconfig.test.json nyc --reporter=html --require ts-node/register tape 'source/**/*.spec.ts' | tap-arc",
-    "test:coverage:win32": "TS_NODE_PROJECT=tsconfig.test.json nyc --require ts-node/register tape source/**/*.spec.ts | tap-arc",
-    "test:pretty": "run-script-os",
-    "test:pretty:nix": "TS_NODE_PROJECT=tsconfig.test.json nyc --require ts-node/register tape 'source/**/*.spec.ts' | tap-arc",
-    "test:pretty:win32": "TS_NODE_PROJECT=tsconfig.test.json nyc --require ts-node/register tape source/**/*.spec.ts | tap-arc",
+    "test": "npm run test:unit && npm run test:functional",
+    "test:unit": "node --require ./test.register.cjs --test 'source/**/*.spec.ts'",
+    "test:functional": "node --require ./test.register.cjs --test 'test/**/*.spec.ts'",
+    "test:coverage": "odz -- node --require ./test.register.cjs --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
+    "test:coverage:html": "odz -r html -rd ./coverage -- node --require ./test.register.cjs --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
     "prepare": "husky || true"
   },
   "keywords": [
@@ -62,24 +58,16 @@
   "engines": {
     "node": ">=22"
   },
-  "nyc": {
-    "exclude": [
-      "source/**/*.spec.ts"
-    ]
-  },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
     "@commitlint/config-conventional": "^20.5.3",
     "@release-it/conventional-changelog": "^11.0.0",
-    "@types/node": "^25.8.0",
-    "@types/tape": "^5.8.1",
+    "@types/node": "^25.9.1",
     "commitlint": "^20.5.3",
+    "fast-check": "^4.8.0",
     "husky": "^9.1.7",
-    "nyc": "^18.0.0",
+    "one-double-zero": "^1.1.1",
     "release-it": "^20.0.1",
-    "run-script-os": "^1.1.6",
-    "tap-arc": "^1.3.2",
-    "tape": "^5.9.0",
     "template-literal-each": "^3.0.1",
     "ts-node": "^10.9.2",
     "tsup": "^8.5.1",

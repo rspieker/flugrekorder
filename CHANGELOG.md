@@ -1,5 +1,22 @@
 # Changelog
 
+## [1.2.0-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.1.0...v1.2.0-beta.0) (2026-05-27)
+
+### Features
+
+* add filter option to configure which rekordings are emitted ([e33287d](https://github.com/rspieker/flugrekorder/commit/e33287db23c62908a5f5170c7b0fc39c3c83a5a5))
+* add format() to convert a Rekording to a human-readable string ([0b99182](https://github.com/rspieker/flugrekorder/commit/0b991820ff7f3eef5daef640eac279f00c8f130a))
+* add mechanism to retry with bindings on encountering private fields + control option ([f23eacd](https://github.com/rspieker/flugrekorder/commit/f23eacd5fd2d950b119c906b0e3cfbcd47234432))
+* add serialization controls ([8fd42a1](https://github.com/rspieker/flugrekorder/commit/8fd42a14fcc66fb1e59449f732355b2b77686a7b))
+* add timestamp to every Rekording ([9f0a889](https://github.com/rspieker/flugrekorder/commit/9f0a8896519ebf5f140ced8f37d771c87394b087))
+* ensure proxying into structuredClone (et al) does not crash but unwraps ([4a10cc1](https://github.com/rspieker/flugrekorder/commit/4a10cc148a2b7fab807bdf4d2c0f2b016fa127e7))
+* export isProxiable type guard ([b7ced8c](https://github.com/rspieker/flugrekorder/commit/b7ced8cdeeb32e436f609d36d34b34c75006b5a7))
+
+### Bug Fixes
+
+* remove the need for definite assignment assertions ('!') ([8b09209](https://github.com/rspieker/flugrekorder/commit/8b09209a0fe60466ec133c1bcd2ef37f50fd5a49))
+* wrap http.Server and other C++ bindings without crashing ([61a79ea](https://github.com/rspieker/flugrekorder/commit/61a79ead88e16aec9aa481ed154b46f807592432))
+
 ## [1.1.0](https://github.com/rspieker/flugrekorder/compare/v1.1.0-beta.0...v1.1.0) (2026-05-22)
 
 ## [1.1.0-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.0.2-beta.1...v1.1.0-beta.0) (2026-05-22)
@@ -16,21 +33,9 @@
 
 ## [1.0.2-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.0.1...v1.0.2-beta.0) (2026-05-20)
 
-## [1.0.1](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.7...v1.0.1) (2026-05-18)
+## [1.0.1](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.2...v1.0.1) (2026-05-18)
 
-## [1.0.0](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.7...v1.0.1) (2026-05-18)
-
-## [1.0.0](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.6...v1.0.0) (2026-05-18)
-
-## [1.0.0-beta.6](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.5...v1.0.0-beta.6) (2026-05-18)
-
-## [1.0.0-beta.5](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.4...v1.0.0-beta.5) (2026-05-18)
-
-## [1.0.0-beta.4](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.3...v1.0.0-beta.4) (2026-05-18)
-
-## [1.0.0-beta.3](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.2...v1.0.0-beta.3) (2026-05-18)
-
-## 1.0.0-beta.2 (2026-05-18)
+- 1.0.0 was retracted as the publication of the first beta claimed that version (forgotten `-beta.0` in the version name)
 
 ### Features
 

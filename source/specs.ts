@@ -1,0 +1,169 @@
+import { boundMethod, hasInternalSlots } from './slots';
+import { isProxiable, type Proxiable } from './types';
+
+/** A function that conditionally wraps a value in a proxy. */
+export type Wrapper = (v: unknown) => unknown;
+
+// %TypedArray% — the abstract base class shared by all TypedArray constructors.
+// Not exposed as a global; reached via the prototype chain of any TypedArray.
+const TypedArray = Object.getPrototypeOf(Int8Array);
+
+const ecmaBuiltins = [
+	Promise,
+	Map,
+	Set,
+	WeakMap,
+	WeakSet,
+	Date,
+	RegExp,
+	ArrayBuffer,
+	TypedArray,
+	DataView,
+];
+
+/**
+ * Returns true for standard ECMAScript built-ins whose C++ implementations
+ * perform a JavaScript-level type check before touching internal fields —
+ * so they throw a catchable TypeError when called through a Proxy rather
+ * than crashing the process.  Distinguishes them from Node.js C++ bindings
+ * (TCP handles, ConnectionsList, HTTPParser, …) that crash fatally.
+ *
+ * Uses instanceof to cover subclasses — a JS subclass of Map has the same
+ * internal-slot behaviour as Map itself and is equally safe to proxy.
+ */
+function isECMABuiltin(v: unknown): boolean {
+	return ecmaBuiltins.some((B) => v instanceof B);
+}
+
+/** Returns true when v is a C++ binding object that would crash Node.js if proxied. */
+function isUnsafeBinding(v: unknown): boolean {
+	return isProxiable(v) && hasInternalSlots(v) && !isECMABuiltin(v);
+}
+
+// Exported for testing only.
+export { isECMABuiltin, isUnsafeBinding };
+
+/** Pre/post hooks for a Reflect trap — transform args before dispatch and/or wrap the result. */
+export type Spec = {
+	pre?: (
+		args: Array<unknown>,
+		wrap: Wrapper,
+		known: Wrapper,
+	) => Array<unknown>;
+	post?: (result: unknown, args: Array<unknown>, wrap: Wrapper) => unknown;
+};
+
+/**
+ * Builds per-trap hooks for a proxy session.
+ * When `bind` is true, all method results and getter receivers are
+ * bound to the real target — the same strategy used for ECMAScript built-ins
+ * with internal slots, extended to user-defined classes with `#` private fields.
+ */
+export function makeSpecs(bind: boolean | undefined): Partial<Record<string, Spec>> {
+	return {
+	get: {
+		// For targets with internal slots (Map, Set, WeakMap, WeakSet, Date …)
+		// or when bind is true, use the real target as the Reflect.get
+		// receiver so that getter-based slot checks and #private field reads
+		// (e.g. `get value() { return this.#count; }`) don't throw TypeError.
+		pre: ([target, key, receiver], _wrap, _known) => [
+			target,
+			key,
+			hasInternalSlots(target as Proxiable) || bind ? target : receiver,
+		],
+		// For the same targets, bind method results to the real target before
+		// wrapping so that apply-level slot checks (e.g. Map.prototype.get)
+		// and #private field access inside methods also pass.
+		// The bind cache ensures proxy stability.
+		post: (result, [target, key], wrap) => {
+			if (key === 'prototype') return result;
+			if (hasInternalSlots(target as Proxiable) || bind) {
+				if (typeof result === 'function')
+					return wrap(
+						boundMethod(
+							target as object,
+							key as PropertyKey,
+							result as (...args: Array<unknown>) => unknown,
+						),
+					);
+			}
+			// Don't proxy C++ binding objects — they crash native code when
+			// used as Proxies (e.g. ConnectionsList, TCP handles).  ECMAScript
+			// built-ins (Map, Set, Promise, Date …) are excluded: they have
+			// proper JS-level type checks and can be safely proxied.
+			if (isUnsafeBinding(result)) return result;
+			return wrap(result);
+		},
+	},
+	set: {
+		pre: ([target, key, value, receiver], wrap) => [
+			target,
+			key,
+			// Don't wrap when target has slots (Map/Set internals) or when the
+			// value is an unsafe C++ binding (TCP handles, etc.).
+			hasInternalSlots(target as Proxiable) || isUnsafeBinding(value)
+				? value
+				: wrap(value),
+			receiver,
+		],
+	},
+	apply: {
+		// thisArg is wrapped normally (it's always a graph node).
+		// Call arguments are wrapped with known — only existing graph nodes
+		// get proxied; plain data passes through and is inlined by serialize().
+		pre: ([target, thisArg, callArgs], wrap, known) => [
+			target,
+			wrap(thisArg),
+			(<Array<unknown>>callArgs).map(known),
+		],
+		post: (result, _args, wrap) => wrap(result),
+	},
+	construct: {
+		pre: ([target, callArgs, newTarget], wrap) => [
+			target,
+			(<Array<unknown>>callArgs).map(wrap),
+			newTarget,
+		],
+		post: (result, _args, wrap) => wrap(result),
+	},
+	defineProperty: {
+		pre: (args, wrap) => {
+			const [target, key, descriptor] = <
+				[unknown, unknown, PropertyDescriptor]
+			>args;
+			const patch: PropertyDescriptor = {};
+
+			if (descriptor.value != null && !isUnsafeBinding(descriptor.value))
+				patch.value = wrap(descriptor.value);
+			if (typeof descriptor.get === 'function')
+				patch.get = <() => unknown>wrap(descriptor.get);
+			if (typeof descriptor.set === 'function')
+				patch.set = <(v: unknown) => void>wrap(descriptor.set);
+
+			return Object.keys(patch).length > 0
+				? [target, key, { ...descriptor, ...patch }]
+				: args;
+		},
+	},
+	getOwnPropertyDescriptor: {
+		post: (result, _args, wrap) => {
+			const desc = <PropertyDescriptor | undefined>result;
+
+			if (!desc) return result;
+
+			const patch: PropertyDescriptor = {};
+
+			if (desc.value != null && !isUnsafeBinding(desc.value))
+				patch.value = wrap(desc.value);
+			if (typeof desc.get === 'function')
+				patch.get = <() => unknown>wrap(desc.get);
+			if (typeof desc.set === 'function')
+				patch.set = <(v: unknown) => void>wrap(desc.set);
+
+			return Object.keys(patch).length > 0
+				? { ...desc, ...patch }
+				: result;
+		},
+	},
+	};
+}
