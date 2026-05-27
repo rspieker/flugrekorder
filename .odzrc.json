@@ -1,0 +1,4 @@
+{
+  "sources": ["source/**/*.ts"],
+  "excludedSources": ["source/**/*.spec.ts"]
+}

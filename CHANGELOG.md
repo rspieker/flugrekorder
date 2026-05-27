@@ -16,21 +16,9 @@
 
 ## [1.0.2-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.0.1...v1.0.2-beta.0) (2026-05-20)
 
-## [1.0.1](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.7...v1.0.1) (2026-05-18)
+## [1.0.1](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.2...v1.0.1) (2026-05-18)
 
-## [1.0.0](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.7...v1.0.1) (2026-05-18)
-
-## [1.0.0](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.6...v1.0.0) (2026-05-18)
-
-## [1.0.0-beta.6](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.5...v1.0.0-beta.6) (2026-05-18)
-
-## [1.0.0-beta.5](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.4...v1.0.0-beta.5) (2026-05-18)
-
-## [1.0.0-beta.4](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.3...v1.0.0-beta.4) (2026-05-18)
-
-## [1.0.0-beta.3](https://github.com/rspieker/flugrekorder/compare/v1.0.0-beta.2...v1.0.0-beta.3) (2026-05-18)
-
-## 1.0.0-beta.2 (2026-05-18)
+- 1.0.0 was retracted as the publication of the first beta claimed that version (forgotten `-beta.0` in the version name)
 
 ### Features
 

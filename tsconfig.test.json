@@ -3,5 +3,7 @@
 	"compilerOptions": {
 		"module": "CommonJS",
 		"moduleResolution": "node"
-	}
+	},
+	"include": ["source/**/*.ts", "source/**/*.spec.ts", "test/**/*.ts"],
+	"exclude": ["node_modules", "dist"]
 }
