@@ -4,8 +4,8 @@ import fc from 'fast-check';
 import {
 	createTestProxyRecorder,
 	type Improbability,
-} from '../test/test-helpers';
-import * as flugrekorder from './flugrekorder';
+} from '../test/test-helpers.ts';
+import * as flugrekorder from './flugrekorder.ts';
 import {
 	create,
 	getAncestors,
@@ -15,7 +15,7 @@ import {
 	getTarget,
 	isFlugrekorder,
 	type Rekording,
-} from './flugrekorder';
+} from './flugrekorder.ts';
 
 const safeKey = fc
 	.string({ minLength: 1, maxLength: 20 })

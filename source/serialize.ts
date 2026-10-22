@@ -1,4 +1,4 @@
-import type { Graph } from './graph';
+import type { Graph } from './graph.ts';
 import {
 	isProxiable,
 	type Origin,
@@ -6,7 +6,7 @@ import {
 	type Redactor,
 	type Serialized,
 	type SerializedOrigin,
-} from './types';
+} from './types.ts';
 
 export type SerialConfig = {
 	depth: number;
@@ -48,16 +48,16 @@ function proxiable(
 	// Check for a known proxy BEFORE Array.isArray: iterating a proxied
 	// array via its proxy triggers get traps which call serialize again,
 	// causing infinite recursion. A proxy is always tagged by ID.
-	const proxyNode = graph.getByProxy(<Proxiable>v);
+	const proxyNode = graph.getByProxy(v as Proxiable);
 	if (proxyNode !== undefined) return { $proxy: proxyNode.id };
 
-	const targetNode = graph.getByTarget(<Proxiable>v);
+	const targetNode = graph.getByTarget(v as Proxiable);
 	if (targetNode !== undefined) return { $unwrap: { $proxy: targetNode.id } };
 	if (depth >= serial.depth) return '[…]';
 
 	// Plain (unproxied) arrays are safe to iterate directly.
 	if (Array.isArray(v)) {
-		return (<Array<unknown>>v).map((item) =>
+		return (v as Array<unknown>).map((item) =>
 			serialize(item, graph, seen, serial, depth + 1),
 		);
 	}
@@ -69,9 +69,9 @@ function proxiable(
 
 	const entries: Array<[string, Serialized]> = [];
 
-	for (const [k, val] of Object.entries(<object>v)) {
+	for (const [k, val] of Object.entries(v as object)) {
 		if (serial.redactors.length > 0) {
-			const decision = redact(serial.redactors, k, val, <object>v);
+			const decision = redact(serial.redactors, k, val, v as object);
 			if (decision === null) continue;
 			if (decision !== false) {
 				entries.push([k, decision]);
@@ -99,10 +99,10 @@ export function serialize(
 	if (isProxiable(v)) return proxiable(v, graph, seen, serial, depth);
 
 	return typeof v === 'string'
-		? (<string>v).length > serial.truncate
-			? `${(<string>v).slice(0, serial.truncate)}…`
-			: <string>v
-		: <Serialized>v;
+		? (v as string).length > serial.truncate
+			? `${(v as string).slice(0, serial.truncate)}…`
+			: (v as string)
+		: (v as Serialized);
 }
 
 /** Converts an Origin to its serialized form — coerces symbol keys to strings. */

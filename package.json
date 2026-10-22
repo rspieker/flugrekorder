@@ -12,14 +12,20 @@
     "url": "https://github.com/rspieker/flugrekorder/issues"
   },
   "homepage": "https://github.com/rspieker/flugrekorder#readme",
-  "main": "dist/flugrekorder.js",
-  "module": "dist/flugrekorder.mjs",
+  "type": "module",
+  "main": "dist/flugrekorder.cjs",
+  "module": "dist/flugrekorder.js",
   "types": "dist/flugrekorder.d.ts",
   "exports": {
     ".": {
-      "types": "./dist/flugrekorder.d.ts",
-      "import": "./dist/flugrekorder.mjs",
-      "require": "./dist/flugrekorder.js"
+      "import": {
+        "types": "./dist/flugrekorder.d.ts",
+        "default": "./dist/flugrekorder.js"
+      },
+      "require": {
+        "types": "./dist/flugrekorder.d.cts",
+        "default": "./dist/flugrekorder.cjs"
+      }
     }
   },
   "files": [
@@ -35,11 +41,11 @@
     "check:write": "biome check --write",
     "release": "release-it --ci",
     "prepublishOnly": "npm run build",
-    "test": "npm run test:unit && npm run test:functional",
-    "test:unit": "node --require ./test.register.cjs --test 'source/**/*.spec.ts'",
-    "test:functional": "node --require ./test.register.cjs --test 'test/**/*.spec.ts'",
-    "test:coverage": "odz -- node --require ./test.register.cjs --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
-    "test:coverage:html": "odz -r html -rd ./coverage -- node --require ./test.register.cjs --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
+    "typecheck": "tsc -p tsconfig.test.json",
+    "test": "npm run typecheck && npm run test:unit && npm run test:functional",
+    "test:unit": "node --test 'source/**/*.spec.ts'",
+    "test:functional": "node --test 'test/**/*.spec.ts'",
+    "test:coverage": "node --experimental-test-coverage --test-coverage-include='source/**/*.ts' --test-coverage-exclude='source/**/*.spec.ts' --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
     "prepare": "husky || true"
   },
   "keywords": [
@@ -60,17 +66,18 @@
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
-    "@commitlint/config-conventional": "^20.5.3",
-    "@release-it/conventional-changelog": "^11.0.0",
+    "@commitlint/config-conventional": "^21.2.4",
+    "@release-it/conventional-changelog": "^12.0.2",
     "@types/node": "^25.9.1",
-    "commitlint": "^20.5.3",
+    "commitlint": "^21.2.4",
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
-    "one-double-zero": "^1.1.1",
-    "release-it": "^20.0.1",
+    "release-it": "^21.1.1",
     "template-literal-each": "^3.0.1",
-    "ts-node": "^10.9.2",
-    "tsup": "^8.5.1",
+    "tsup": "^9.0.0",
     "typescript": "^6.0.3"
+  },
+  "overrides": {
+    "basic-ftp": "^6.2.3"
   }
 }

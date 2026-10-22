@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Writable } from 'node:stream';
 import { describe, test } from 'node:test';
 import {
 	create,
@@ -7,8 +8,8 @@ import {
 	getProxyById,
 	getTarget,
 	isFlugrekorder,
-} from '../source/flugrekorder';
-import { createTestProxyRecorder, type Improbability } from './test-helpers';
+} from '../source/flugrekorder.ts';
+import { createTestProxyRecorder, type Improbability } from './test-helpers.ts';
 
 describe('test/flugrekorder', () => {
 	describe('descriptors', () => {
@@ -260,7 +261,6 @@ describe('test/flugrekorder', () => {
 
 		test('getProxyById resolves IDs from stream records', () => {
 			// arrange
-			const { Writable } = require('node:stream');
 			const lines: Array<string> = [];
 			let buf = '';
 			const stream = new Writable({

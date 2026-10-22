@@ -1,5 +1,5 @@
-import { isProxiable } from './types';
-import type { Origin, Proxiable } from './types';
+import { isProxiable } from './types.ts';
+import type { Origin, Proxiable } from './types.ts';
 
 /** A node in the proxy graph — links a proxy to its original target, its origin, and its ID. */
 export type GraphNode = {

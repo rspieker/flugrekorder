@@ -1,4 +1,4 @@
-import type { Proxiable } from './types';
+import type { Proxiable } from './types.ts';
 
 type AnyFn = (...args: Array<unknown>) => unknown;
 

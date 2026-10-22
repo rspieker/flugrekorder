@@ -1,12 +1,12 @@
 import assert from 'node:assert/strict';
 import { Writable } from 'node:stream';
 import { describe, test } from 'node:test';
-import { create } from '../source/flugrekorder';
+import { create } from '../source/flugrekorder.ts';
 import {
 	createTestProxyRecorder,
 	type Improbability,
 	isProxyTag,
-} from './test-helpers';
+} from './test-helpers.ts';
 
 function makeStream() {
 	const lines: Array<string> = [];
@@ -91,7 +91,7 @@ describe('test/recording', () => {
 		);
 		assert.ok(getA && getB, 'both records found');
 		assert.ok(isProxyTag(getA?.result), 'getA result is a $proxy tag');
-		const aId = (getA?.result as { $proxy: string }).$proxy;
+		const aId = (getA.result as { $proxy: string }).$proxy;
 		const bParent =
 			getB && getB.origin !== null && 'parent' in getB.origin
 				? getB.origin.parent
@@ -121,7 +121,7 @@ describe('test/recording', () => {
 		const applyRec = records.find((r) => r.trap === 'apply');
 		assert.ok(getFn && applyRec, 'get and apply records found');
 		assert.ok(isProxyTag(getFn?.result), 'get result is $proxy-tagged');
-		const fnId = (getFn?.result as { $proxy: string }).$proxy;
+		const fnId = (getFn.result as { $proxy: string }).$proxy;
 		const applySource =
 			applyRec && applyRec.origin !== null && 'source' in applyRec.origin
 				? applyRec.origin.source
@@ -147,7 +147,7 @@ describe('test/recording', () => {
 		);
 		assert.ok(rec, 'get record found');
 		assert.strictEqual(
-			typeof (rec?.origin as Improbability).key,
+			typeof (rec.origin as Improbability).key,
 			'string',
 			'symbol key is serialised as string',
 		);

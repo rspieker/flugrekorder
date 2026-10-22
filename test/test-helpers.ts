@@ -1,4 +1,4 @@
-import { create, type Proxiable } from '../source/flugrekorder';
+import { create, type Proxiable } from '../source/flugrekorder.ts';
 
 // biome-ignore lint/suspicious/noExplicitAny: Improbability is the intentional escape hatch for test assertions that cannot be typed otherwise
 export type Improbability = any;

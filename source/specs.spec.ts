@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
-import type { Improbability } from '../test/test-helpers';
-import { isECMABuiltin, isUnsafeBinding } from './specs';
+import type { Improbability } from '../test/test-helpers.ts';
+import { isECMABuiltin, isUnsafeBinding } from './specs.ts';
 
 describe('source/specs', () => {
 	describe('isECMABuiltin', () => {

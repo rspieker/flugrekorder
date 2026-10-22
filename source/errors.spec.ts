@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
-import type { Improbability } from '../test/test-helpers';
-import { createErrorGuard, isError } from './errors';
+import type { Improbability } from '../test/test-helpers.ts';
+import { createErrorGuard, isError } from './errors.ts';
 
 describe('source/errors', () => {
 	describe('isError', () => {

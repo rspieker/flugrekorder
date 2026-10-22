@@ -1,10 +1,10 @@
 import type { Writable } from 'node:stream';
-import type { GraphNode } from './graph';
-import { Graph } from './graph';
-import type { SerialConfig } from './serialize';
-import { serialize, origin as serializeOrigin } from './serialize';
-import type { Spec, Wrapper } from './specs';
-import { makeSpecs } from './specs';
+import type { GraphNode } from './graph.ts';
+import { Graph } from './graph.ts';
+import type { SerialConfig } from './serialize.ts';
+import { serialize, origin as serializeOrigin } from './serialize.ts';
+import type { Spec, Wrapper } from './specs.ts';
+import { makeSpecs } from './specs.ts';
 import type {
 	CallTrap,
 	Origin,
@@ -12,18 +12,18 @@ import type {
 	Proxiable,
 	Redactor,
 	Rekording,
-} from './types';
-import { isProxiable } from './types';
-import { retryFlows } from './retry';
+} from './types.ts';
+import { isProxiable } from './types.ts';
+import { retryFlows } from './retry.ts';
 
-export { format } from './format';
+export { format } from './format.ts';
 export {
 	getAncestors,
 	getOrigin,
 	getPath,
 	getProxyById,
 	getTarget,
-} from './inspection';
+} from './inspection.ts';
 export type {
 	CallTrap,
 	Origin,
@@ -32,9 +32,8 @@ export type {
 	Redactor,
 	Rekording,
 	Serialized,
-} from './types';
-export { isProxiable } from './types';
-
+} from './types.ts';
+export { isProxiable } from './types.ts';
 
 /** Resolved runtime configuration — derived from CreateOptions and passed through the proxy factory. */
 type Config = {
@@ -76,71 +75,72 @@ function makeProxy<T extends Proxiable>(
 	origin: Origin,
 ): T {
 	// Already a proxy (in any graph) — return unchanged, preventing double-wrapping.
-	if (Graph.isProxy(<Proxiable>target)) return target;
+	if (Graph.isProxy(target as Proxiable)) return target;
 
 	// Already have a proxy for this original — reuse it (stability guarantee).
-	const existing = graph.getByTarget(<Proxiable>target);
+	const existing = graph.getByTarget(target as Proxiable);
 
-	if (existing) return <T>existing.proxy;
+	if (existing) return existing.proxy as T;
 
 	// Promises cannot be proxied directly: native methods like .then() check for
 	// the [[PromiseState]] internal slot and throw if `this` is a Proxy. Instead,
 	// return a new Promise that resolves to a proxy of the settled value.
 	if (target instanceof Promise) {
-		const chained = <T>(
-			(<unknown>(
-				target.then((value) =>
-					isProxiable(value)
-						? makeProxy(<Proxiable>value, graph, config, origin)
-						: value,
-				)
-			))
-		);
+		const chained = target.then((value) =>
+			isProxiable(value)
+				? makeProxy(value as Proxiable, graph, config, origin)
+				: value,
+		) as unknown as T;
 		// Register with a placeholder node so stability lookups work.
 		const id = graph.nextId();
 
-		graph.register(<Proxiable>chained, <Proxiable>target, origin, id);
+		graph.register(chained as Proxiable, target as Proxiable, origin, id);
 
 		return chained;
 	}
 
 	const proxyId = graph.nextId();
 
-	const traps = (<Array<keyof typeof Reflect>>(
-		Object.getOwnPropertyNames(Reflect)
-	)).filter((trap) => config.only === null || config.only.has(trap));
+	const traps = (
+		Object.getOwnPropertyNames(Reflect) as Array<keyof typeof Reflect>
+	).filter((trap) => config.only === null || config.only.has(trap));
 
 	const handler: ProxyHandler<Proxiable> = Object.fromEntries(
 		traps.map((trap) => [
 			trap,
 			(...rawArgs: Array<unknown>) => {
-				const selfId = (<GraphNode>graph.getByTarget(target)).id;
+				const selfId = (graph.getByTarget(target) as GraphNode).id;
 
 				let childOrigin: Origin =
 					/get|set|defineProperty|getOwnPropertyDescriptor/.test(trap)
 						? {
-								trap: <PropertyTrap>trap,
+								trap: trap as PropertyTrap,
 								parent: selfId,
-								key: <string | symbol>rawArgs[1],
+								key: rawArgs[1] as string | symbol,
 							}
 						: /apply|construct/.test(trap)
-							? { trap: <CallTrap>trap, source: selfId }
+							? { trap: trap as CallTrap, source: selfId }
 							: null;
 
 				const wrap: Wrapper = (v) => {
-					if (!isProxiable(v) || Graph.isProxy(<Proxiable>v))
+					if (!isProxiable(v) || Graph.isProxy(v as Proxiable))
 						return v;
 					if (!config.recursive) return v;
 
-					return makeProxy(<Proxiable>v, graph, config, childOrigin);
+					return makeProxy(
+						v as Proxiable,
+						graph,
+						config,
+						childOrigin,
+					);
 				};
 
 				// Only wraps values already in the graph — new plain data passes through.
 				const known: Wrapper = (v) => {
 					if (!isProxiable(v)) return v;
-					if (Graph.isProxy(<Proxiable>v)) return v;
+					if (Graph.isProxy(v as Proxiable)) return v;
 
-					const existing = graph.getByTarget(<Proxiable>v);
+					const existing = graph.getByTarget(v as Proxiable);
 
 					if (existing) return existing.proxy;
 
@@ -157,9 +157,9 @@ function makeProxy<T extends Proxiable>(
 				let result: unknown;
 
 				try {
-					result = (<(...args: Array<unknown>) => unknown>(
-						Reflect[trap]
-					))(...preArgs);
+					result = (
+						Reflect[trap] as (...args: Array<unknown>) => unknown
+					)(...preArgs);
 				} catch (e) {
 					const flow = retryFlows.find(({ is }) =>
 						is(trap, e, config.bind),
@@ -176,7 +176,7 @@ function makeProxy<T extends Proxiable>(
 						if (flow.trap) {
 							effectiveTrap = flow.trap;
 							childOrigin = {
-								trap: <CallTrap>flow.trap,
+								trap: flow.trap as CallTrap,
 								source: selfId,
 							};
 						}
@@ -209,10 +209,10 @@ function makeProxy<T extends Proxiable>(
 		]),
 	);
 
-	const pxy = <T>(<unknown>new Proxy(<Proxiable>target, handler));
+	const pxy = new Proxy(target as Proxiable, handler) as unknown as T;
 
-	graph.register(<Proxiable>pxy, <Proxiable>target, origin, proxyId);
-	Graph.track(<Proxiable>pxy);
+	graph.register(pxy as Proxiable, target as Proxiable, origin, proxyId);
+	Graph.track(pxy as Proxiable);
 
 	return pxy;
 }
@@ -251,5 +251,5 @@ export function create<T extends Proxiable>(
 
 /** Returns `true` if `value` is a proxy created by this module. */
 export function isFlugrekorder(value: unknown): value is Proxiable {
-	return isProxiable(value) && Graph.isProxy(<Proxiable>value);
+	return isProxiable(value) && Graph.isProxy(value as Proxiable);
 }

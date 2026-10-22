@@ -1,6 +1,6 @@
-import { createErrorGuard } from './errors';
-import type { Graph } from './graph';
-import type { RetryFlow } from './types';
+import { createErrorGuard } from './errors.ts';
+import type { Graph } from './graph.ts';
+import type { RetryFlow } from './types.ts';
 
 /** Returns the underlying target if `value` is a proxy known to `graph`, otherwise `value` unchanged. */
 export function unwrap(graph: Graph | undefined, value: unknown): unknown {

@@ -1,5 +1,5 @@
-import { Graph } from './graph';
-import type { Origin, Proxiable } from './types';
+import { Graph } from './graph.ts';
+import type { Origin, Proxiable } from './types.ts';
 
 /** Returns the original unwrapped target of a proxy, or `null` for non-proxies. */
 export function getTarget(pxy: Proxiable): Proxiable | null {

@@ -2,11 +2,11 @@
 
 Self-contained scenarios showing how flugrekorder fits into real work.
 
-Each example is a standalone TypeScript file. Run them with `tsx` or any TypeScript runner after installing flugrekorder:
+Each example is a standalone TypeScript file. Node.js 22.18 or later runs them directly after installing flugrekorder:
 
 ```sh
 npm install flugrekorder
-npx tsx examples/01-spy-without-setup.ts
+node examples/01-spy-without-setup.ts
 ```
 
 ---

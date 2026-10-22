@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
-import type { Improbability } from '../test/test-helpers';
-import { isProxiable } from './types';
+import type { Improbability } from '../test/test-helpers.ts';
+import { isProxiable } from './types.ts';
 
 describe('source/types', () => {
 	describe('isProxiable', () => {

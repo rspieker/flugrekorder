@@ -2,12 +2,12 @@ import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
-import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder';
+import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder.ts';
 import {
 	createTestProxyRecorder,
 	type Improbability,
 	isProxyTag,
-} from './test-helpers';
+} from './test-helpers.ts';
 
 // Finds all apply records for a given method name by cross-referencing the
 // preceding get record's $proxy result with apply origin.source.
@@ -75,7 +75,7 @@ describe('test/boundary', () => {
 			const [setRec] = appliesFor(records, 'set');
 			assert.ok(setRec, 'set call recorded');
 			assert.strictEqual(
-				(setRec?.args[2] as Improbability)[0],
+				(setRec.args[2] as Improbability)[0],
 				'k',
 				'set key in args',
 			);
@@ -87,7 +87,7 @@ describe('test/boundary', () => {
 			const [getRec] = appliesFor(records, 'get');
 			assert.ok(getRec, 'get call recorded');
 			assert.strictEqual(
-				(getRec?.args[2] as Improbability)[0],
+				(getRec.args[2] as Improbability)[0],
 				'k',
 				'get key in args',
 			);
@@ -103,7 +103,7 @@ describe('test/boundary', () => {
 			const [deleteRec] = appliesFor(records, 'delete');
 			assert.ok(deleteRec, 'delete call recorded');
 			assert.strictEqual(
-				(deleteRec?.args[2] as Improbability)[0],
+				(deleteRec.args[2] as Improbability)[0],
 				'k',
 				'delete key in args',
 			);
@@ -189,7 +189,7 @@ describe('test/boundary', () => {
 			const [setRec] = appliesFor(records, 'set');
 			assert.ok(setRec, 'set call recorded');
 			assert.ok(
-				(setRec?.args[2] as Improbability)[0],
+				(setRec.args[2] as Improbability)[0],
 				'key arg present in recording',
 			);
 			assert.ok(

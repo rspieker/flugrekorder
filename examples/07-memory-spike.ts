@@ -14,8 +14,8 @@
  *
  * Run it twice:
  *
- *   npx tsx examples/07-memory-spike.ts
- *   NODE_OPTIONS=--max-old-space-size=200 npx tsx examples/07-memory-spike.ts
+ *   node examples/07-memory-spike.ts
+ *   node --max-old-space-size=200 examples/07-memory-spike.ts
  *
  * The second run crashes; `memory.ndjson` ends with the call that never returned.
  */
