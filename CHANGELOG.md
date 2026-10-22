@@ -1,5 +1,17 @@
 # Changelog
 
+## [2.0.0-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.2.0...v2.0.0-beta.0) (2026-10-22)
+
+### ⚠ BREAKING CHANGES
+
+* the build targets Node.js 22 and dist is ESM-first;
+  the CommonJS build moved to `dist/flugrekorder.cjs`. Importing
+  `flugrekorder` itself is unaffected.
+
+### Build System
+
+* run TypeScript natively, update dependencies ([d7184d9](https://github.com/rspieker/flugrekorder/commit/d7184d993ad66761fae2d11e08f72c45ad20796f))
+
 ## [1.2.0](https://github.com/rspieker/flugrekorder/compare/v1.2.0-beta.0...v1.2.0) (2026-05-27)
 
 ## [1.2.0-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.1.0...v1.2.0-beta.0) (2026-05-27)
