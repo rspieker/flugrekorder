@@ -279,6 +279,62 @@ Certainly not the average request log, but a full picture of what happened when,
 
 ---
 
+### Find the call behind a memory spike
+
+flugrekorder knows nothing about memory — but the callback runs synchronously after every trap, so it can take a sample itself. A record fires only once a trap *returns*, though, and the call that runs a process out of memory never does. The `get` that looks a method up fires *before* the call, so it doubles as an entry marker.
+
+```ts
+import { openSync, writeSync } from 'node:fs';
+import { create } from 'flugrekorder';
+
+const log = openSync('memory.ndjson', 'w');
+const write = (line: object) => writeSync(log, `${JSON.stringify(line)}\n`);
+let peak = process.resourceUsage().maxRSS;
+let seq = 0;
+const id = () => `#${++seq}`;
+
+// exit: every method becomes its own non-recursive proxy
+for (const [key, fn] of Object.entries(processor)) {
+  processor[key] = create(fn, {
+    id,
+    only: ['apply'],
+    recursive: false,
+    depth: 0,
+    callback(r) {
+      const { maxRSS } = process.resourceUsage();
+      write({ id: r.id, exit: key, growth: Math.round((maxRSS - peak) / 1024) });
+      peak = maxRSS;
+    },
+  });
+}
+
+// enter: looking up `p.method` fires just before calling it
+const p = create(processor, {
+  id,
+  only: ['get'],
+  recursive: false,
+  callback: (r) => write({ id: r.id, enter: r.origin && 'key' in r.origin ? r.origin.key : '?' }),
+});
+```
+
+`memory.ndjson` after a crash ends with a call that was entered but never exited:
+
+```json
+{"id":"#13","exit":"parse","growth":85}
+{"id":"#14","enter":"normalise"}
+```
+
+Without the memory limit, the same run reports `{"exit":"normalise","growth":213}`, while `heapUsed` *dropped* by 66MB across that call. Some details matter more than they look:
+
+- **`maxRSS`, not `heapUsed`.** Garbage collection can run between the spike and the sample, so the heap may look fine afterwards. `maxRSS` is a high-water mark: its growth per call is what each call cost at its worst. `Buffer` contents count towards `external`, not the heap.
+- **`writeSync`, not `stream`.** A Writable buffers in memory, adding to the spike, and whatever is still buffered when the process dies is lost.
+- **`recursive: false`.** Proxying the payload records every element read and keeps every one of them alive in the graph. The recorder becomes the leak.
+- **`depth: 0`.** The default `depth: Infinity` serializes plain-object arguments by value, so a `Buffer` argument is serialized byte by byte. Here it also stops the `apply` record from serializing `this`, which is the `enter` proxy: reading its keys would fire its `get` trap and log entries that never happened.
+
+The record names the call, not the line. Wrap the internals of the call it points at and run again, or take a heap snapshot at the limit (`node --heapsnapshot-near-heap-limit=1`) to see what filled it. The runnable version is [`examples/07-memory-spike.ts`](examples/07-memory-spike.ts).
+
+---
+
 ## API
 
 ### `create(target, options)`
@@ -301,6 +357,7 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
 | `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
+| `filter` | `(r: Rekording) => boolean` | — | Called with each record before it is emitted; return `false` to drop it. Unlike `only`, the trap is still handled and its result still proxied — so the graph keeps growing — and the record is already serialized when `filter` sees it. |
 | `depth` | `number` | `Infinity` | Maximum depth for nested object serialization. Deeper values are replaced with `[…]`. |
 | `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
 | `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
@@ -482,6 +539,8 @@ Note the `let p!: typeof …` pattern: the callback closes over `p` before it is
 ### One graph per session
 
 Every `create()` call produces an isolated `Graph` — a session-scoped registry that maps proxies, targets, and IDs to each other. Once all references to a proxied tree are dropped, the graph is eligible for garbage collection. There are no module-level leaks between independent recordings.
+
+While a session is alive, though, it holds on to everything it has touched: the graph indexes every proxy by ID so `getProxyById` can resolve it, which keeps each proxy — and its target — reachable for as long as any proxy in the graph is. A recursive recording that walks a large data structure retains all of it. When memory is what you are investigating, wrap code boundaries with `recursive: false` rather than the data flowing through them (see [Find the call behind a memory spike](#find-the-call-behind-a-memory-spike)).
 
 ### Structured origin
 

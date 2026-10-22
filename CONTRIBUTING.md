@@ -10,10 +10,15 @@ npm install        # also sets up git hooks via husky
 
 ## Running tests
 
+Node.js runs the TypeScript sources directly — no transpiler, no loader — which needs Node.js 22.18 or later.
+
 ```sh
-npm test           # run the test suite
-npm run test:pretty  # run with coverage summary
+npm test               # type check, then run the test suite
+npm run typecheck      # type check only (node strips types, it does not check them)
+npm run test:coverage  # run the test suite with a coverage summary
 ```
+
+Type stripping only supports erasable syntax: write type assertions as `value as T`, not `<T>value`, and import relative files with their `.ts` extension. `tsconfig.json` enforces both.
 
 ## Building
 

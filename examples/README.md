@@ -1,12 +1,12 @@
 # Examples
 
-Three self-contained scenarios showing how flugrekorder fits into real work.
+Self-contained scenarios showing how flugrekorder fits into real work.
 
-Each example is a standalone TypeScript file. Run them with `tsx` or any TypeScript runner after installing flugrekorder:
+Each example is a standalone TypeScript file. Node.js 22.18 or later runs them directly after installing flugrekorder:
 
 ```sh
 npm install flugrekorder
-npx tsx examples/01-spy-without-setup.ts
+node examples/01-spy-without-setup.ts
 ```
 
 ---
@@ -203,3 +203,38 @@ Calls recorded:
 
 Page loaded: 7061 characters
 ```
+
+---
+
+## 07 — Memory spike hunter
+
+**File:** [`07-memory-spike.ts`](07-memory-spike.ts)
+
+**The problem:** a process downloads a large document and memory jumps from its baseline to the limit, then crashes. You need to know which call in the flow caused the jump — and the call that causes it never returns, so it never produces a record.
+
+**The trick:** sample memory inside the callback, at two moments per call. Every method becomes its own `recursive: false` proxy whose `apply` record logs the growth of peak RSS — the *exit*. A `get` proxy on the module logs the method lookup that happens just before the call — the *enter*. Write with `writeSync` so the last line survives the crash.
+
+```ts
+(module as Record<string, unknown>)[key] = create(fn, {
+  id,
+  only: ['apply'],
+  recursive: false,
+  depth: 0,
+  callback(r) {
+    const { maxRSS } = process.resourceUsage();
+    write({ id: r.id, exit: `${name}.${key}`, growth: Math.round((maxRSS - peak) / 1024) });
+    peak = maxRSS;
+  },
+});
+```
+
+`recursive: false` keeps the 70MB payload out of the graph; proxying it would make the recorder the biggest consumer of memory. `depth: 0` keeps the record from serializing the payload or `this`.
+
+**Output** (`memory.ndjson`, abridged):
+```
+{"id":"#13","exit":"processor.parse",...,"peak":523,"growth":85}
+{"id":"#14","enter":"processor.normalise","rss":523}
+{"id":"#15","exit":"processor.normalise","heap":234,...,"peak":736,"growth":213}
+```
+
+`heapUsed` went down during `normalise` while its peak grew by 213MB, so look at `growth`, not at heap deltas. Run it with `NODE_OPTIONS=--max-old-space-size=200` and the log ends at `enter processor.normalise`, which has no matching exit: that is the call that crashed the process.

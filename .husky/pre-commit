@@ -1,1 +1,1 @@
-NO_COLOR=1 npm run test:unit
+npm run typecheck && NO_COLOR=1 npm run test:unit

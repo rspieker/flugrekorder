@@ -4,8 +4,8 @@ import { each } from 'template-literal-each';
 import {
 	createTestProxyRecorder,
 	type Improbability,
-} from '../test/test-helpers';
-import { create, format } from './flugrekorder';
+} from '../test/test-helpers.ts';
+import { create, format } from './flugrekorder.ts';
 
 describe('source/format', () => {
 	let target: Record<string, unknown>;

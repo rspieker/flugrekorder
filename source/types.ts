@@ -1,4 +1,4 @@
-import type { Graph } from './graph';
+import type { Graph } from './graph.ts';
 export type Proxiable = object;
 
 /** Reflect traps that operate on a property — carry a parent ID and key in their origin. */

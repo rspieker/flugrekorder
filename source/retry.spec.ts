@@ -1,9 +1,9 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import { each } from 'template-literal-each';
-import type { Improbability } from '../test/test-helpers';
-import { Graph } from './graph';
-import { unwrap } from './retry';
+import type { Improbability } from '../test/test-helpers.ts';
+import { Graph } from './graph.ts';
+import { unwrap } from './retry.ts';
 
 describe('source/retry', () => {
 	describe('unwrap', () => {

@@ -1,8 +1,8 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
-import { Graph } from './graph';
-import type { SerialConfig } from './serialize';
-import { defaults, serialize } from './serialize';
+import { Graph } from './graph.ts';
+import type { SerialConfig } from './serialize.ts';
+import { defaults, serialize } from './serialize.ts';
 
 function cfg(overrides: Partial<SerialConfig>): SerialConfig {
 	return { ...defaults, ...overrides };
