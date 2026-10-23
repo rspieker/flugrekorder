@@ -13,19 +13,12 @@
   },
   "homepage": "https://github.com/rspieker/flugrekorder#readme",
   "type": "module",
-  "main": "dist/flugrekorder.cjs",
-  "module": "dist/flugrekorder.js",
+  "main": "dist/flugrekorder.js",
   "types": "dist/flugrekorder.d.ts",
   "exports": {
     ".": {
-      "import": {
-        "types": "./dist/flugrekorder.d.ts",
-        "default": "./dist/flugrekorder.js"
-      },
-      "require": {
-        "types": "./dist/flugrekorder.d.cts",
-        "default": "./dist/flugrekorder.cjs"
-      }
+      "types": "./dist/flugrekorder.d.ts",
+      "default": "./dist/flugrekorder.js"
     }
   },
   "files": [
@@ -34,7 +27,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "build": "tsup",
+    "build": "tsdown",
     "lint": "biome lint",
     "format": "biome format",
     "check": "biome check",
@@ -74,7 +67,7 @@
     "husky": "^9.1.7",
     "release-it": "^21.1.1",
     "template-literal-each": "^3.0.1",
-    "tsup": "^9.0.0",
+    "tsdown": "^0.23.1",
     "typescript": "^6.0.3"
   },
   "overrides": {

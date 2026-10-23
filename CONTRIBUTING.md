@@ -23,7 +23,7 @@ Type stripping only supports erasable syntax: write type assertions as `value as
 ## Building
 
 ```sh
-npm run build      # produces dist/ via tsup (CJS + ESM + IIFE + types)
+npm run build      # produces dist/ via tsdown (ESM + IIFE + types)
 ```
 
 ## Commit messages
@@ -40,7 +40,7 @@ Format: `type(optional scope): description`
 | `refactor` | Changes code structure without changing behaviour or fixing a bug |
 | `test` | Adds, corrects, or removes tests |
 | `docs` | README, CONTRIBUTING, inline comments, examples — no code changes |
-| `build` | Changes to the build system or its config (`tsup.config.ts`, `tsconfig.json`, `package.json` build fields) |
+| `build` | Changes to the build system or its config (`tsdown.config.ts`, `tsconfig.json`, `package.json` build fields) |
 | `ci` | Changes to CI/CD workflows (`.github/workflows/`) |
 | `chore` | Maintenance that doesn't fit elsewhere — dependency updates, repo housekeeping |
 | `style` | Purely cosmetic — whitespace, formatting (rare: Biome handles most of this automatically) |
