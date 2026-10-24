@@ -94,7 +94,7 @@ The trap handler in `makeProxy` follows this flow for every intercepted operatio
 
 ```mermaid
 flowchart TD
-    A([trap fires]) --> B{spec.pre?}
+    A([trap fires on the stand-in]) --> B{spec.pre?}
     B -- yes --> C[pre: transform rawArgs]
     B -- no --> D[preArgs = rawArgs]
     C --> E
@@ -112,7 +112,8 @@ flowchart TD
     G -- no --> L[output = result]
     K --> L
 
-    L --> M["serialize → Rekording"]
+    L --> S["shadow.report: sync stand-in"]
+    S --> M["serialize → Rekording"]
     M --> N{filter?}
     N -- pass --> O([config.write])
     N -- fail --> P([drop])
@@ -128,6 +129,7 @@ flowchart TD
 | Proxy stability guarantee | Same object → same proxy, regardless of how many times it is accessed |
 | Native slot detection + bind cache | Allows `Map`, `Set`, `WeakMap`, `WeakSet`, `Date` to be proxied and recorded; probe runs once per prototype, bind cache maintains stability for method results |
 | No double-wrapping guard | Prevents infinite loops when proxied values are passed back into proxied functions |
+| Stand-in (shadow) target | The engine checks invariants against the proxy's own target. Wrapping an empty stand-in, synced only as far as the invariants demand, lets frozen and read-only values be proxied — and recorded — instead of passed through raw |
 
 ## What was abandoned and why
 
@@ -142,6 +144,25 @@ flowchart TD
 | Unserializable records | Non-starter for the stream output use case |
 
 ---
+
+## Proxy invariants and the stand-in target
+
+Every approach above proxied the real target directly. The engine holds a proxy to that target: a non-configurable, read-only property (frozen objects, class `prototype`, the getters TypeScript and Babel emit for re-exports) must be reported with exactly the target's value, getter and setter, and extensibility must match. Returning a proxy for such a value throws a `TypeError`.
+
+The first sighting was in the initial implementation: `get` returned `prototype` unwrapped. It was treated as a special case for one key rather than as a class of problem, and the property-based tests excluded `prototype` from their keys and never generated frozen, sealed or non-configurable input, so the general case went unnoticed until a frozen object crashed `get`, `getOwnPropertyDescriptor`, spread and `defineProperty`.
+
+A first fix passed pinned values through unwrapped. That kept the application safe, but everything done with such a value — every call through a frozen exports object — went unrecorded. The current design instead gives each proxy an empty stand-in of the same kind as its target (`Shadow` in `shadow.ts`) — the technique known from membranes (Van Cutsem & Miller, *Trustworthy Proxies*, 2013):
+
+- Every trap relays to the real target; the engine checks the results against the stand-in.
+- `get`, `set`, `has` and `deleteProperty` need nothing from an empty stand-in.
+- `getOwnPropertyDescriptor` and `defineProperty` copy a non-configurable property onto it, holding the value as the proxy reports it; from then on, every trap reports that copy.
+- `ownKeys`, `isExtensible`, `preventExtensions`, `getPrototypeOf` and `setPrototypeOf` lock the stand-in once the real target is no longer extensible, including when it was frozen around the proxy.
+- Stand-ins for callables are strict-mode functions (sloppy ones carry non-configurable `arguments` and `caller`), and constructable only when the target has its own `prototype`.
+- Every trap is installed, also those left out of `only`: without a handler the engine would act on the stand-in.
+
+A property-based test builds targets of any integrity level and property shape and compares flugrekorder against a transparent `new Proxy(target, {})`. The reference is a proxy rather than the target, because engines take shortcuts no handler can reproduce: V8 reports an empty non-extensible array as frozen, while its `length` is writable.
+
+One case cannot be satisfied: once the stand-in holds a wrapped copy of a non-configurable, read-only property, an explicit `defineProperty` call on the proxy with the raw value taken from the real target is held against that copy by the engine — after the trap returns, whatever it did. The trap can only choose between refusing (`false`) and the engine throwing; it refuses. On the real target the call is a no-op, the only redefinition a frozen property allows. Assignment is not affected: assigning to a read-only property fails on the target before the stand-in is involved, and the copy of a writable property accepts any value. The alternative — copying the raw value — would make every trap report it raw, which is the unrecorded pass-through this design replaced.
 
 ## Notable additions with no predecessor
 

@@ -3,6 +3,7 @@ import type { GraphNode } from './graph.ts';
 import { Graph } from './graph.ts';
 import type { SerialConfig } from './serialize.ts';
 import { serialize, origin as serializeOrigin } from './serialize.ts';
+import { Shadow } from './shadow.ts';
 import type { Spec, Wrapper } from './specs.ts';
 import { makeSpecs } from './specs.ts';
 import type {
@@ -101,115 +102,173 @@ function makeProxy<T extends Proxiable>(
 
 	const proxyId = graph.nextId();
 
-	const traps = (
-		Object.getOwnPropertyNames(Reflect) as Array<keyof typeof Reflect>
-	).filter((trap) => config.only === null || config.only.has(trap));
+	const wrapper =
+		(origin: () => Origin): Wrapper =>
+		(v) => {
+			if (!isProxiable(v) || Graph.isProxy(v as Proxiable)) return v;
+			if (!config.recursive) return v;
+
+			return makeProxy(v as Proxiable, graph, config, origin());
+		};
+
+	const listed = (trap: string): boolean =>
+		config.only === null || config.only.has(trap);
+
+	// The descriptor the proxy reports for an own key of the target — the
+	// form the stand-in holds once the invariants pin that key.
+	const describe = (key: PropertyKey): PropertyDescriptor | undefined => {
+		const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
+		const post = listed('getOwnPropertyDescriptor')
+			? config.specs.getOwnPropertyDescriptor?.post
+			: undefined;
+
+		if (!descriptor || !post) return descriptor;
+
+		const wrap = wrapper(() => ({
+			trap: 'getOwnPropertyDescriptor',
+			parent: proxyId,
+			key: key as string | symbol,
+		}));
+
+		return post(descriptor, [target, key], wrap) as PropertyDescriptor;
+	};
+
+	const shadow = new Shadow(target, describe, (v) => graph.unwrap(v));
+
+	// Every trap is installed, listed in `only` or not: without a handler the
+	// engine would act on the stand-in rather than on the target.
+	const traps = Object.getOwnPropertyNames(Reflect) as Array<
+		keyof typeof Reflect
+	>;
+
+	// Traps not listed in `only` are relayed to the target unrecorded. The
+	// engine calls each trap with its full argument list, so relaying three
+	// arguments is the same as spreading them, without allocating.
+	const relay = (trap: keyof typeof Reflect) => {
+		const reflect = Reflect[trap] as (...args: Array<unknown>) => unknown;
+
+		return trap === 'defineProperty'
+			? (
+					_shadow: Proxiable,
+					key: PropertyKey,
+					descriptor: PropertyDescriptor,
+				) =>
+					shadow.report(
+						trap,
+						key,
+						reflect(
+							...shadow.forward(trap, [target, key, descriptor]),
+						),
+						descriptor,
+					)
+			: (_shadow: Proxiable, a: unknown, b: unknown, c: unknown) =>
+					shadow.report(
+						trap,
+						a as PropertyKey,
+						reflect(target, a, b, c),
+					);
+	};
+
+	// Traps listed in `only` (all by default) are recorded.
+	const record =
+		(trap: keyof typeof Reflect) =>
+		(_shadow: Proxiable, ...args: Array<unknown>) => {
+			// The engine checks the result against the caller's own arguments.
+			const caller = [target, ...args];
+			const rawArgs = shadow.forward(trap, caller);
+			const selfId = (graph.getByTarget(target) as GraphNode).id;
+
+			let childOrigin: Origin =
+				/get|set|defineProperty|getOwnPropertyDescriptor/.test(trap)
+					? {
+							trap: trap as PropertyTrap,
+							parent: selfId,
+							key: rawArgs[1] as string | symbol,
+						}
+					: /apply|construct/.test(trap)
+						? { trap: trap as CallTrap, source: selfId }
+						: null;
+
+			const wrap = wrapper(() => childOrigin);
+
+			// Only wraps values already in the graph — new plain data passes through.
+			const known: Wrapper = (v) => {
+				if (!isProxiable(v)) return v;
+				if (Graph.isProxy(v as Proxiable)) return v;
+
+				const existing = graph.getByTarget(v as Proxiable);
+
+				if (existing) return existing.proxy;
+
+				return v;
+			};
+
+			const spec = config.specs[trap] ?? {};
+			const preArgs = spec.pre ? spec.pre(rawArgs, wrap, known) : rawArgs;
+
+			let effectiveTrap: string = trap;
+			let effectiveArgs = preArgs;
+			let result: unknown;
+
+			try {
+				result = (
+					Reflect[trap] as (...args: Array<unknown>) => unknown
+				)(...preArgs);
+			} catch (e) {
+				const flow = retryFlows.find(({ is }) =>
+					is(trap, e, config.bind),
+				);
+
+				if (flow) {
+					// is() matched preArgs to this flow's parameter shape at runtime;
+					// the union can't express that statically.
+					const invoke = flow.handle as (
+						g: Graph | undefined,
+						...a: Array<unknown>
+					) => { args?: Array<unknown>; result: unknown };
+					const output = invoke(graph, ...preArgs);
+					if (flow.trap) {
+						effectiveTrap = flow.trap;
+						childOrigin = {
+							trap: flow.trap as CallTrap,
+							source: selfId,
+						};
+					}
+					if (output?.args) effectiveArgs = output.args;
+					result = output.result;
+				} else {
+					throw e;
+				}
+			}
+
+			const output = shadow.report(
+				trap,
+				caller[1] as PropertyKey,
+				spec.post ? spec.post(result, effectiveArgs, wrap) : result,
+				caller[2] as PropertyDescriptor,
+			);
+
+			const rekording: Rekording = {
+				id: graph.nextId(),
+				trap: effectiveTrap,
+				origin: serializeOrigin(childOrigin),
+				args: effectiveArgs.map((arg) =>
+					serialize(arg, graph, new Set(), config.serial),
+				),
+				result: serialize(output, graph, new Set(), config.serial),
+				timestamp: Date.now(),
+			};
+			if (!config.filter || config.filter(rekording))
+				config.write(rekording);
+
+			return output;
+		};
 
 	const handler: ProxyHandler<Proxiable> = Object.fromEntries(
-		traps.map((trap) => [
-			trap,
-			(...rawArgs: Array<unknown>) => {
-				const selfId = (graph.getByTarget(target) as GraphNode).id;
-
-				let childOrigin: Origin =
-					/get|set|defineProperty|getOwnPropertyDescriptor/.test(trap)
-						? {
-								trap: trap as PropertyTrap,
-								parent: selfId,
-								key: rawArgs[1] as string | symbol,
-							}
-						: /apply|construct/.test(trap)
-							? { trap: trap as CallTrap, source: selfId }
-							: null;
-
-				const wrap: Wrapper = (v) => {
-					if (!isProxiable(v) || Graph.isProxy(v as Proxiable))
-						return v;
-					if (!config.recursive) return v;
-
-					return makeProxy(
-						v as Proxiable,
-						graph,
-						config,
-						childOrigin,
-					);
-				};
-
-				// Only wraps values already in the graph — new plain data passes through.
-				const known: Wrapper = (v) => {
-					if (!isProxiable(v)) return v;
-					if (Graph.isProxy(v as Proxiable)) return v;
-
-					const existing = graph.getByTarget(v as Proxiable);
-
-					if (existing) return existing.proxy;
-
-					return v;
-				};
-
-				const spec = config.specs[trap] ?? {};
-				const preArgs = spec.pre
-					? spec.pre(rawArgs, wrap, known)
-					: rawArgs;
-
-				let effectiveTrap: string = trap;
-				let effectiveArgs = preArgs;
-				let result: unknown;
-
-				try {
-					result = (
-						Reflect[trap] as (...args: Array<unknown>) => unknown
-					)(...preArgs);
-				} catch (e) {
-					const flow = retryFlows.find(({ is }) =>
-						is(trap, e, config.bind),
-					);
-
-					if (flow) {
-						// is() matched preArgs to this flow's parameter shape at runtime;
-						// the union can't express that statically.
-						const invoke = flow.handle as (
-							g: Graph | undefined,
-							...a: Array<unknown>
-						) => { args?: Array<unknown>; result: unknown };
-						const output = invoke(graph, ...preArgs);
-						if (flow.trap) {
-							effectiveTrap = flow.trap;
-							childOrigin = {
-								trap: flow.trap as CallTrap,
-								source: selfId,
-							};
-						}
-						if (output?.args) effectiveArgs = output.args;
-						result = output.result;
-					} else {
-						throw e;
-					}
-				}
-
-				const output = spec.post
-					? spec.post(result, effectiveArgs, wrap)
-					: result;
-
-				const rekording: Rekording = {
-					id: graph.nextId(),
-					trap: effectiveTrap,
-					origin: serializeOrigin(childOrigin),
-					args: effectiveArgs.map((arg) =>
-						serialize(arg, graph, new Set(), config.serial),
-					),
-					result: serialize(output, graph, new Set(), config.serial),
-					timestamp: Date.now(),
-				};
-				if (!config.filter || config.filter(rekording))
-					config.write(rekording);
-
-				return output;
-			},
-		]),
+		traps.map((trap) => [trap, listed(trap) ? record(trap) : relay(trap)]),
 	);
 
-	const pxy = new Proxy(target as Proxiable, handler) as unknown as T;
+	const pxy = new Proxy(shadow.object, handler) as unknown as T;
 
 	graph.register(pxy as Proxiable, target as Proxiable, origin, proxyId);
 	Graph.track(pxy as Proxiable);

@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { createServer } from 'node:http';
 import { describe, test } from 'node:test';
+import fc from 'fast-check';
 import { each } from 'template-literal-each';
 import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder.ts';
 import {
@@ -36,6 +37,14 @@ function appliesFor(
 
 	return [];
 }
+
+const primitive = fc.oneof(
+	fc.string(),
+	fc.integer(),
+	fc.boolean(),
+	fc.constant(null),
+	fc.constant(undefined),
+);
 
 describe('test/boundary', () => {
 	describe('native objects', () => {
@@ -714,20 +723,16 @@ describe('test/boundary', () => {
 	});
 
 	describe('proxy invariants', () => {
-		// A non-configurable property that is not a writable data property is
-		// pinned: the engine throws if a trap reports anything but its real
-		// value, getter or setter. flugrekorder hands those back unwrapped.
+		// The engine checks every trap result against the proxy's own target: a
+		// non-configurable property must be reported exactly as it is there, and
+		// so must non-extensibility. flugrekorder proxies wrap an empty stand-in
+		// instead of the real target, and copy onto it only what the invariants
+		// demand — so pinned values can be reported as proxies, and recorded.
 		const inner = { v: 1 };
 		const getter = () => inner;
 		const frozen = () => Object.freeze({ inner });
 		const readonly = () =>
 			Object.defineProperty({}, 'inner', { value: inner, enumerable: true });
-		const writable = () =>
-			Object.defineProperty({}, 'inner', {
-				value: inner,
-				writable: true,
-				enumerable: true,
-			});
 		// The shape TypeScript and Babel emit for re-exports.
 		const reexport = () =>
 			Object.defineProperty({}, 'inner', { get: getter, enumerable: true });
@@ -744,8 +749,12 @@ describe('test/boundary', () => {
 				getOwnPropertyDescriptor of re-export         | ${reexport}    | ${{}}              | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'inner')}
 				spread of frozen object                       | ${frozen}      | ${{}}              | ${(p: Improbability) => ({ ...p })}
 				spread of re-exports                          | ${reexport}    | ${{}}              | ${(p: Improbability) => ({ ...p })}
-				redefine frozen property with its own value   | ${frozen}      | ${{}}              | ${(p: Improbability) => Object.defineProperty(p, 'inner', { value: inner })}
-				redefine re-export with its own getter        | ${reexport}    | ${{}}              | ${(p: Improbability) => Object.defineProperty(p, 'inner', { get: getter })}
+				spread of a class                             | ${() => class {}} | ${{}}           | ${(p: Improbability) => ({ ...p })}
+				Object.isFrozen of frozen object              | ${frozen}      | ${{}}              | ${(p: Improbability) => Object.isFrozen(p)}
+				Object.freeze through the proxy               | ${() => ({ inner })} | ${{}}        | ${(p: Improbability) => Object.keys(Object.freeze(p))}
+				redefine frozen property with its own value   | ${frozen}      | ${{}}              | ${(p: Improbability) => Object.defineProperty(p, 'inner', Object.getOwnPropertyDescriptor(p, 'inner') as PropertyDescriptor)}
+				redefine re-export with its own getter        | ${reexport}    | ${{}}              | ${(p: Improbability) => Object.defineProperty(p, 'inner', Object.getOwnPropertyDescriptor(p, 'inner') as PropertyDescriptor)}
+				redefine when only describing is recorded     | ${frozen}      | ${{ only: ['getOwnPropertyDescriptor'] }} | ${(p: Improbability) => Object.defineProperty(p, 'inner', Object.getOwnPropertyDescriptor(p, 'inner') as PropertyDescriptor)}
 			`(({ message, target, options, operation }: Improbability) => {
 				// arrange
 				const p = create(target(), { ...options, callback: () => {} });
@@ -755,33 +764,16 @@ describe('test/boundary', () => {
 			});
 		});
 
-		test('pinned values are returned as the real value, not a proxy', () => {
+		test('pinned values are proxied', () => {
 			each`
 				message                                      | target       | operation
 				-------------------------------------------- | ------------ | ---------
 				get frozen property                          | ${frozen}    | ${(p: Improbability) => p.inner}
 				get read-only property                       | ${readonly}  | ${(p: Improbability) => p.inner}
+				get through a re-export                      | ${reexport}  | ${(p: Improbability) => p.inner}
+				get element of a frozen array                | ${() => Object.freeze([inner])} | ${(p: Improbability) => p[0]}
 				getOwnPropertyDescriptor of frozen property  | ${frozen}    | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'inner')?.value}
 				getOwnPropertyDescriptor of re-export        | ${reexport}  | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'inner')?.get}
-			`(({ message, target, operation }: Improbability) => {
-				// arrange
-				const p = create(target(), { callback: () => {} });
-
-				// act
-				const value = operation(p);
-
-				// assert
-				assert.ok(!isFlugrekorder(value), message);
-			});
-		});
-
-		test('values that are not pinned are still proxied', () => {
-			each`
-				message                                            | target       | operation
-				-------------------------------------------------- | ------------ | ---------
-				get non-configurable but writable property         | ${writable}  | ${(p: Improbability) => p.inner}
-				get through a re-export: the getter result is free | ${reexport}  | ${(p: Improbability) => p.inner}
-				get of a configurable read-only property           | ${() => Object.defineProperty({}, 'inner', { value: inner, configurable: true })} | ${(p: Improbability) => p.inner}
 			`(({ message, target, operation }: Improbability) => {
 				// arrange
 				const p = create(target(), { callback: () => {} });
@@ -794,16 +786,250 @@ describe('test/boundary', () => {
 			});
 		});
 
-		test('reading a pinned property is still recorded, with its value inlined', () => {
+		test('every trap reports a pinned value as the same proxy', () => {
+			// arrange
+			const p = create(frozen(), { callback: () => {} });
+
+			// act
+			const described = Object.getOwnPropertyDescriptor(p, 'inner')?.value;
+
+			// assert
+			assert.strictEqual(p.inner, described);
+		});
+
+		test('calls through a frozen object are recorded', () => {
+			// arrange
+			// e.g. a dependency that freezes its exports
+			const exports = Object.freeze({ hello: () => 'hi' });
+			const { records, proxy } = createTestProxyRecorder(exports);
+
+			// act
+			proxy.hello();
+
+			// assert
+			assert.deepStrictEqual(
+				records.map(({ trap }) => trap),
+				['get', 'apply'],
+			);
+		});
+
+		test('reading a pinned property records the proxy it returns', () => {
 			// arrange
 			const { records, proxy } = createTestProxyRecorder(frozen());
 
 			// act
-			(proxy as Improbability).inner;
+			proxy.inner;
 
 			// assert
 			const read = records.find((r) => r.trap === 'get');
-			assert.deepStrictEqual(read?.result, { v: 1 });
+			assert.ok(isProxyTag(read?.result));
+		});
+
+		test('the proxy reports the integrity, kind and prototype of its target', () => {
+			each`
+				message                        | target                                         | operation
+				------------------------------ | ---------------------------------------------- | ---------
+				frozen object is frozen        | ${frozen}                                      | ${Object.isFrozen}
+				sealed object is sealed        | ${() => Object.seal({ inner })}                | ${Object.isSealed}
+				non-extensible object          | ${() => Object.preventExtensions({ inner })}   | ${Object.isExtensible}
+				extensible object              | ${() => ({ inner })}                           | ${Object.isExtensible}
+				own keys of a frozen array     | ${() => Object.freeze([1, inner])}             | ${Reflect.ownKeys}
+				arrays are arrays              | ${() => [inner]}                               | ${Array.isArray}
+				functions are functions        | ${() => () => {}}                              | ${(v: unknown) => typeof v}
+				prototype of frozen instance   | ${() => Object.freeze(new Date(0))}            | ${Object.getPrototypeOf}
+			`(({ message, target, operation }: Improbability) => {
+				// arrange
+				const real = target();
+				const p = create(real, { callback: () => {} });
+
+				// act
+				const reported = operation(p);
+
+				// assert
+				assert.deepStrictEqual(reported, operation(real), message);
+			});
+		});
+
+		test('the proxy follows its target when it is frozen around the proxy', () => {
+			// arrange
+			const real: Record<string, unknown> = { inner, n: 1 };
+			const p = create(real, { callback: () => {} });
+
+			// act
+			Object.freeze(real);
+
+			// assert
+			assert.ok(Object.isFrozen(p), 'frozen');
+			assert.deepStrictEqual(Object.keys(p), ['inner', 'n'], 'keys');
+			assert.ok(isFlugrekorder(p.inner), 'values still proxied');
+		});
+
+		test('constructing follows the target', () => {
+			each`
+				message              | target
+				-------------------- | ------
+				class                | ${class {}}
+				function             | ${function () {}}
+			`(({ message, target }: Improbability) => {
+				const P = create(target, { callback: () => {} });
+
+				assert.doesNotThrow(() => new P(), message);
+			});
+		});
+
+		test('constructing a non-constructor throws, as on the target', () => {
+			each`
+				message              | target
+				-------------------- | ------
+				arrow function       | ${() => {}}
+				method               | ${{ m() {} }.m}
+				async function       | ${async () => {}}
+			`(({ message, target }: Improbability) => {
+				const P = create(target, { callback: () => {} });
+
+				assert.throws(() => new P(), TypeError, message);
+			});
+		});
+
+		test('known limitation: redefining a pinned property with a value obtained around the proxy is refused', () => {
+			// arrange
+			// Once the proxy has described `inner` (as a proxy), the engine holds
+			// any redefinition to exactly that. On the real target, redefining
+			// with the raw value is a no-op that succeeds; through the proxy it
+			// is refused, as `Reflect.defineProperty` reports with `false`.
+			const real = frozen();
+			const p = create(real, { callback: () => {} });
+
+			Object.getOwnPropertyDescriptor(p, 'inner');
+
+			// act
+			const defined = Reflect.defineProperty(p, 'inner', {
+				value: real.inner,
+			});
+
+			// assert
+			assert.strictEqual(defined, false);
+		});
+
+		test('behaves as a transparent proxy for any integrity level and property shape (property)', () => {
+			// Builds the same target twice — once behind a transparent proxy, once
+			// behind flugrekorder — runs the same operations on both and compares
+			// the outcomes. The reference is a proxy rather than the target itself:
+			// engines take shortcuts no handler can reproduce, e.g. V8 reports an
+			// empty non-extensible array as frozen, while its length is writable.
+			const key = fc.constantFrom('a', 'b', '0', 'length');
+			const property = fc.record({
+				accessor: fc.boolean(),
+				configurable: fc.boolean(),
+				enumerable: fc.boolean(),
+				writable: fc.boolean(),
+				value: fc.oneof(primitive, fc.constantFrom('{}', '() => {}')),
+			});
+			const blueprint = fc.record({
+				array: fc.boolean(),
+				properties: fc.dictionary(
+					fc.constantFrom('a', 'b', '0'),
+					property,
+				),
+				integrity: fc.constantFrom(
+					'none',
+					'preventExtensions',
+					'seal',
+					'freeze',
+				),
+			});
+			const operation = fc.oneof(
+				key.map((k) => (o: Improbability) => o[k]),
+				key.map((k) => (o: Improbability) => k in o),
+				key.map((k) => (o: Improbability) =>
+					Object.getOwnPropertyDescriptor(o, k),
+				),
+				key.map((k) => (o: Improbability) => Reflect.set(o, k, 1)),
+				key.map((k) => (o: Improbability) => Reflect.deleteProperty(o, k)),
+				key.map((k) => (o: Improbability) => {
+					const descriptor = Object.getOwnPropertyDescriptor(o, k);
+
+					return descriptor && Reflect.defineProperty(o, k, descriptor);
+				}),
+				fc.constant((o: Improbability) => Reflect.ownKeys(o)),
+				fc.constant((o: Improbability) => ({ ...o })),
+				fc.constant((o: Improbability) => Object.isExtensible(o)),
+				fc.constant((o: Improbability) => Object.isFrozen(o)),
+				fc.constant((o: Improbability) => Object.isSealed(o)),
+				fc.constant((o: Improbability) => Object.freeze(o) && 'frozen'),
+				fc.constant(
+					(o: Improbability) => Object.preventExtensions(o) && 'locked',
+				),
+			);
+
+			function build({ array, properties, integrity }: Improbability) {
+				const target = array ? [] : {};
+
+				for (const [name, spec] of Object.entries<Improbability>(
+					properties,
+				)) {
+					const value =
+						spec.value === '{}'
+							? {}
+							: spec.value === '() => {}'
+								? () => {}
+								: spec.value;
+					const { configurable, enumerable } = spec;
+
+					Object.defineProperty(
+						target,
+						name,
+						spec.accessor
+							? { configurable, enumerable, get: () => value }
+							: { configurable, enumerable, value, writable: spec.writable },
+					);
+				}
+
+				if (integrity === 'preventExtensions') Object.preventExtensions(target);
+				if (integrity === 'seal') Object.seal(target);
+				if (integrity === 'freeze') Object.freeze(target);
+
+				return target;
+			}
+
+			// Proxies are compared as what they stand for, objects by kind.
+			function outcome(run: () => unknown): unknown {
+				const shape = (v: unknown): unknown =>
+					v === null || (typeof v !== 'object' && typeof v !== 'function')
+						? v
+						: Array.isArray(v)
+							? v.map(shape)
+							: typeof v === 'function'
+								? 'function'
+								: Object.getPrototypeOf(v) === Object.prototype
+									? Object.fromEntries(
+											Object.entries(v).map(([k, x]) => [k, shape(x)]),
+										)
+									: 'object';
+
+				try {
+					return { value: shape(run()) };
+				} catch (error) {
+					return { error: (error as Error).constructor.name };
+				}
+			}
+
+			fc.assert(
+				fc.property(
+					blueprint,
+					fc.array(operation, { maxLength: 8 }),
+					(spec, operations) => {
+						const transparent = new Proxy(build(spec), {});
+						const p = create(build(spec), { callback: () => {} });
+
+						for (const op of operations)
+							assert.deepStrictEqual(
+								outcome(() => op(p)),
+								outcome(() => op(transparent)),
+							);
+					},
+				),
+			);
 		});
 	});
 });
