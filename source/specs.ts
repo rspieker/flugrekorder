@@ -40,6 +40,21 @@ function isUnsafeBinding(v: unknown): boolean {
 	return isProxiable(v) && hasInternalSlots(v) && !isECMABuiltin(v);
 }
 
+/**
+ * Returns true when the Proxy invariants pin a property to its real value:
+ * a non-configurable property that is not a writable data property — frozen
+ * and read-only values, and accessors (such as the getters TypeScript and
+ * Babel emit for re-exports). For these, the engine throws TypeError if a
+ * trap reports anything other than the target's own value, getter or setter.
+ */
+function isPinned(descriptor: PropertyDescriptor | undefined): boolean {
+	return (
+		descriptor !== undefined &&
+		!descriptor.configurable &&
+		descriptor.writable !== true
+	);
+}
+
 // Exported for testing only.
 export { isECMABuiltin, isUnsafeBinding };
 
@@ -81,6 +96,16 @@ export function makeSpecs(
 			// The bind cache ensures proxy stability.
 			post: (result, [target, key], wrap) => {
 				if (key === 'prototype') return result;
+				// A pinned data property must be reported as its real value.
+				// Accessors are not affected: what a getter returns is unconstrained.
+				if (isProxiable(result)) {
+					const own = Reflect.getOwnPropertyDescriptor(
+						target as object,
+						key as PropertyKey,
+					);
+
+					if (own && 'value' in own && isPinned(own)) return result;
+				}
 				if (hasInternalSlots(target as Proxiable) || bind) {
 					if (typeof result === 'function')
 						return wrap(
@@ -137,6 +162,18 @@ export function makeSpecs(
 					unknown,
 					PropertyDescriptor,
 				];
+				// Redefining a pinned property only succeeds with its real value,
+				// getter and setter — a wrapped one would be refused.
+				if (
+					isPinned(
+						Reflect.getOwnPropertyDescriptor(
+							target as object,
+							key as PropertyKey,
+						),
+					)
+				)
+					return args;
+
 				const patch: PropertyDescriptor = {};
 
 				if (
@@ -158,7 +195,7 @@ export function makeSpecs(
 			post: (result, _args, wrap) => {
 				const desc = result as PropertyDescriptor | undefined;
 
-				if (!desc) return result;
+				if (!desc || isPinned(desc)) return result;
 
 				const patch: PropertyDescriptor = {};
 

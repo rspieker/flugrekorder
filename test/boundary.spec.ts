@@ -712,4 +712,98 @@ describe('test/boundary', () => {
 			);
 		});
 	});
+
+	describe('proxy invariants', () => {
+		// A non-configurable property that is not a writable data property is
+		// pinned: the engine throws if a trap reports anything but its real
+		// value, getter or setter. flugrekorder hands those back unwrapped.
+		const inner = { v: 1 };
+		const getter = () => inner;
+		const frozen = () => Object.freeze({ inner });
+		const readonly = () =>
+			Object.defineProperty({}, 'inner', { value: inner, enumerable: true });
+		const writable = () =>
+			Object.defineProperty({}, 'inner', {
+				value: inner,
+				writable: true,
+				enumerable: true,
+			});
+		// The shape TypeScript and Babel emit for re-exports.
+		const reexport = () =>
+			Object.defineProperty({}, 'inner', { get: getter, enumerable: true });
+
+		test('operations on pinned properties do not throw', () => {
+			each`
+				message                                       | target         | options            | operation
+				--------------------------------------------- | -------------- | ------------------ | ---------
+				get frozen property                           | ${frozen}      | ${{}}              | ${(p: Improbability) => p.inner}
+				get read-only property                        | ${readonly}    | ${{}}              | ${(p: Improbability) => p.inner}
+				get frozen method with bind: true             | ${() => Object.freeze({ m() {} })} | ${{ bind: true }} | ${(p: Improbability) => p.m}
+				get nested frozen property                    | ${() => ({ cfg: Object.freeze({ a: frozen() }) })} | ${{}} | ${(p: Improbability) => p.cfg.a.inner}
+				getOwnPropertyDescriptor of frozen property   | ${frozen}      | ${{}}              | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'inner')}
+				getOwnPropertyDescriptor of re-export         | ${reexport}    | ${{}}              | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'inner')}
+				spread of frozen object                       | ${frozen}      | ${{}}              | ${(p: Improbability) => ({ ...p })}
+				spread of re-exports                          | ${reexport}    | ${{}}              | ${(p: Improbability) => ({ ...p })}
+				redefine frozen property with its own value   | ${frozen}      | ${{}}              | ${(p: Improbability) => Object.defineProperty(p, 'inner', { value: inner })}
+				redefine re-export with its own getter        | ${reexport}    | ${{}}              | ${(p: Improbability) => Object.defineProperty(p, 'inner', { get: getter })}
+			`(({ message, target, options, operation }: Improbability) => {
+				// arrange
+				const p = create(target(), { ...options, callback: () => {} });
+
+				// act / assert
+				assert.doesNotThrow(() => operation(p), message);
+			});
+		});
+
+		test('pinned values are returned as the real value, not a proxy', () => {
+			each`
+				message                                      | target       | operation
+				-------------------------------------------- | ------------ | ---------
+				get frozen property                          | ${frozen}    | ${(p: Improbability) => p.inner}
+				get read-only property                       | ${readonly}  | ${(p: Improbability) => p.inner}
+				getOwnPropertyDescriptor of frozen property  | ${frozen}    | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'inner')?.value}
+				getOwnPropertyDescriptor of re-export        | ${reexport}  | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'inner')?.get}
+			`(({ message, target, operation }: Improbability) => {
+				// arrange
+				const p = create(target(), { callback: () => {} });
+
+				// act
+				const value = operation(p);
+
+				// assert
+				assert.ok(!isFlugrekorder(value), message);
+			});
+		});
+
+		test('values that are not pinned are still proxied', () => {
+			each`
+				message                                            | target       | operation
+				-------------------------------------------------- | ------------ | ---------
+				get non-configurable but writable property         | ${writable}  | ${(p: Improbability) => p.inner}
+				get through a re-export: the getter result is free | ${reexport}  | ${(p: Improbability) => p.inner}
+				get of a configurable read-only property           | ${() => Object.defineProperty({}, 'inner', { value: inner, configurable: true })} | ${(p: Improbability) => p.inner}
+			`(({ message, target, operation }: Improbability) => {
+				// arrange
+				const p = create(target(), { callback: () => {} });
+
+				// act
+				const value = operation(p);
+
+				// assert
+				assert.ok(isFlugrekorder(value), message);
+			});
+		});
+
+		test('reading a pinned property is still recorded, with its value inlined', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(frozen());
+
+			// act
+			(proxy as Improbability).inner;
+
+			// assert
+			const read = records.find((r) => r.trap === 'get');
+			assert.deepStrictEqual(read?.result, { v: 1 });
+		});
+	});
 });
