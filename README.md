@@ -556,6 +556,16 @@ Proxiable values (objects and functions) in args and results are replaced with `
 
 Promises cannot be proxied directly — native `.then()` checks for the `[[PromiseState]]` internal slot and throws if `this` is a Proxy. Instead, flugrekorder returns a new Promise that resolves to a proxy of the settled value, maintaining the stability guarantee across async boundaries.
 
+### Stand-in targets
+
+A `Proxy` is held to its target by the engine: a property that is non-configurable and read-only — every property of a frozen object, or a getter as TypeScript and Babel emit for re-exports — must be reported exactly as the target holds it, and so must the target's extensibility. A proxy over the real target could therefore never hand out a proxy for a frozen value, and anything done with that value would go unrecorded.
+
+So a flugrekorder proxy does not wrap the real target. It wraps an empty stand-in of the same kind — an object, an array, or a function that is constructable only when the target is — and relays every trap to the real target. The engine checks results against the stand-in, which follows the real target only as far as the invariants demand: a non-configurable property is copied onto it once a trap reports it, and once the real target stops being extensible (also when it is frozen around the proxy), so does the stand-in. Copies hold the value as the proxy reported it, so the same proxy is reported by every trap from then on.
+
+For this to work, every trap has a handler, including those left out of `only`: those are relayed to the target without being recorded.
+
+**Known limitation** — this concerns explicit redefinition only; assignment behaves as on the target. Once the proxy has *described* a non-configurable, read-only property (`Object.getOwnPropertyDescriptor`, spread, `Object.keys` on a frozen object, …), calling `Object.defineProperty` or `Reflect.defineProperty` on the proxy with the raw value taken from the real target is refused: `Reflect.defineProperty` returns `false`, `Object.defineProperty` throws. On the real target that call can only be a no-op — a frozen property can only be redefined to what it already is. The engine holds the caller's descriptor against the stand-in's copy after the trap returns, so the trap can only choose between refusing (`false`) and the engine throwing; it refuses. Redefining with the descriptor read through the proxy works.
+
 ### `wrap` vs `wrapKnown`
 
 Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `wrapKnown` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
