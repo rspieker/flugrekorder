@@ -238,3 +238,52 @@ Page loaded: 7061 characters
 ```
 
 `heapUsed` went down during `normalise` while its peak grew by 213MB, so look at `growth`, not at heap deltas. Run it with `NODE_OPTIONS=--max-old-space-size=200` and the log ends at `enter processor.normalise`, which has no matching exit: that is the call that crashed the process.
+
+---
+
+## 08 — Frozen state dependencies
+
+**File:** [`08-frozen-state.ts`](08-frozen-state.ts)
+
+**The problem:** a view re-renders more often than it should. Its selector reads from a store whose state is deeply frozen — as Redux Toolkit does through Immer — and you want to know which parts of the state it actually depends on, so you can tell which updates should trigger it.
+
+**The trick:** wrap the frozen state and collect the path of every property the selector reads. A frozen object would normally force a proxy to hand out its real values, ending the recording at the first level; flugrekorder wraps a stand-in instead (see [Stand-in targets](../README.md#stand-in-targets)), so nested reads through frozen objects are recorded like any other.
+
+```ts
+tracked = create(state, {
+  only: ['get'],
+  callback(r) {
+    if (!r.origin || !('parent' in r.origin)) return;
+
+    const parent = getProxyById(r.origin.parent, tracked);
+    const owner = parent && getTarget(parent);
+
+    // keep reads of the state's own data — not of methods like `filter`,
+    // nor of the `Array` constructor that `filter` uses to create its result
+    if (typeof owner !== 'object' || !Object.hasOwn(owner, r.origin.key))
+      return;
+
+    const prefix = getPath(parent);
+
+    reads.add(general(prefix ? `${prefix}.${r.origin.key}` : r.origin.key));
+  },
+});
+```
+
+`general` folds array indices into `[n]`: which item was read matters less than what was read from it. Comparing the reads against every path in the state gives what the selector never touches.
+
+**Output:**
+```
+[ 'document frozen state', 'release next version' ]
+Read by the selector: [
+  'todos',
+  'todos.length',
+  'todos[n]',
+  'filter',
+  'todos[n].done',
+  'todos[n].title'
+]
+Never read: [ 'todos[n].id', 'todos[n].tags', 'user' ]
+```
+
+Updates to `user`, or to a todo's `id` or `tags`, can't change what this selector returns — a view depending on it alone doesn't need to re-render for them. `todos.length` is a dependency too: adding or removing a todo always matters.

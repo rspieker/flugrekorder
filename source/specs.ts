@@ -1,3 +1,4 @@
+import { isPinned } from './shadow.ts';
 import { boundMethod, hasInternalSlots } from './slots.ts';
 import { isProxiable, type Proxiable } from './types.ts';
 
@@ -137,6 +138,15 @@ export function makeSpecs(
 					unknown,
 					PropertyDescriptor,
 				];
+				const own = Reflect.getOwnPropertyDescriptor(
+					target as object,
+					key as PropertyKey,
+				);
+
+				// A pinned property keeps its real value, getter and setter: the
+				// stand-in has already unwrapped what was read through the proxy.
+				if (own && isPinned(own)) return args;
+
 				const patch: PropertyDescriptor = {};
 
 				if (
@@ -155,10 +165,12 @@ export function makeSpecs(
 			},
 		},
 		getOwnPropertyDescriptor: {
-			post: (result, _args, wrap) => {
+			// `prototype` stays unwrapped, as it does for get: `instanceof`
+			// compares prototypes by identity.
+			post: (result, [, key], wrap) => {
 				const desc = result as PropertyDescriptor | undefined;
 
-				if (!desc) return result;
+				if (!desc || key === 'prototype') return result;
 
 				const patch: PropertyDescriptor = {};
 
