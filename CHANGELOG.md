@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.0-beta.1](https://github.com/rspieker/flugrekorder/compare/v2.0.0-beta.0...v2.0.0-beta.1) (2026-10-24)
+
+### Features
+
+* wrap a stand-in target so pinned values are proxied and recorded ([1f528e9](https://github.com/rspieker/flugrekorder/commit/1f528e9c2bc806303f186195a63cbd83bb5f897a))
+
+### Bug Fixes
+
+* respect proxy invariants for non-configurable properties ([4b96c9d](https://github.com/rspieker/flugrekorder/commit/4b96c9d070f8ba0540b3acd0a56465a8b8ea6483))
+
 ## [2.0.0-beta.0](https://github.com/rspieker/flugrekorder/compare/v1.2.0...v2.0.0-beta.0) (2026-10-22)
 
 ### ⚠ BREAKING CHANGES
