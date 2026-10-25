@@ -1,5 +1,15 @@
 # Changelog
 
+## [2.0.0-beta.2](https://github.com/rspieker/flugrekorder/compare/v2.0.0-beta.1...v2.0.0-beta.2) (2026-10-25)
+
+### ⚠ BREAKING CHANGES
+
+* Raises `engines` to Node.js >= 22.18.
+
+### Features
+
+* record where code lives with `location` and `stack` ([e6b1203](https://github.com/rspieker/flugrekorder/commit/e6b12031b3b907f60043b55ed3f273bbb23ecb17))
+
 ## [2.0.0-beta.1](https://github.com/rspieker/flugrekorder/compare/v2.0.0-beta.0...v2.0.0-beta.1) (2026-10-24)
 
 ### Features
