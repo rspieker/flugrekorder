@@ -61,6 +61,18 @@ export type Redactor = (
 	target: object,
 ) => string | boolean | null;
 
+/** A position in a source file: a path in unix notation relative to `process.cwd()` (or a name such as `node:fs`), with a 1-based line and column. */
+export type SourceLocation = {
+	file: string;
+	line: number;
+	column: number;
+};
+
+/** One frame of a call stack: the position of the call and the name of the function it is in (`''` for anonymous code). */
+export type StackFrame = SourceLocation & {
+	function: string;
+};
+
 /** A single recorded interaction — one Reflect trap firing on one proxy. */
 export type Rekording = {
 	id: string;
@@ -69,6 +81,10 @@ export type Rekording = {
 	args: Array<Serialized>;
 	result: Serialized;
 	timestamp: number;
+	/** With the `location` option, on apply and construct records: where the called function is defined; `null` for native functions. */
+	location?: SourceLocation | null;
+	/** With the `stack` option: the call stack that made the trap fire, nearest frame first. */
+	stack?: Array<StackFrame>;
 };
 
 type Fn = (...args: Array<unknown>) => unknown;
