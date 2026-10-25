@@ -38,6 +38,7 @@
     "test": "npm run typecheck && npm run test:unit && npm run test:functional",
     "test:unit": "node --test 'source/**/*.spec.ts'",
     "test:functional": "node --test 'test/**/*.spec.ts'",
+    "test:browser": "npm run build && node --test 'test/**/*.browser.ts'",
     "test:coverage": "node --experimental-test-coverage --test-coverage-include='source/**/*.ts' --test-coverage-exclude='source/**/*.spec.ts' --test 'source/**/*.spec.ts' 'test/**/*.spec.ts'",
     "prepare": "husky || true"
   },
@@ -55,7 +56,7 @@
   "description": "A tireless, impartial, punctilious, incurious spectator. It witnesses every interaction. It takes note. It understands nothing. Remarkably, this is a feature.",
   "sideEffects": false,
   "engines": {
-    "node": ">=22"
+    "node": ">=22.18"
   },
   "devDependencies": {
     "@biomejs/biome": "^2.4.15",
@@ -65,6 +66,7 @@
     "commitlint": "^21.2.4",
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
+    "playwright": "^1.64.1",
     "release-it": "^21.1.1",
     "template-literal-each": "^3.0.1",
     "tsdown": "^0.23.1",

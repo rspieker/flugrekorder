@@ -4,6 +4,7 @@ import { Graph } from './graph.ts';
 import type { SerialConfig } from './serialize.ts';
 import { serialize, origin as serializeOrigin } from './serialize.ts';
 import { Shadow } from './shadow.ts';
+import * as trace from './trace.ts';
 import type { Spec, Wrapper } from './specs.ts';
 import { makeSpecs } from './specs.ts';
 import type {
@@ -18,8 +19,11 @@ import { isProxiable } from './types.ts';
 import { retryFlows } from './retry.ts';
 
 export { format } from './format.ts';
+export type { StackParser } from './frames.ts';
+export { register as registerStackParser } from './frames.ts';
 export {
 	getAncestors,
+	getLocation,
 	getOrigin,
 	getPath,
 	getProxyById,
@@ -33,6 +37,8 @@ export type {
 	Redactor,
 	Rekording,
 	Serialized,
+	SourceLocation,
+	StackFrame,
 } from './types.ts';
 export { isProxiable } from './types.ts';
 
@@ -45,6 +51,8 @@ type Config = {
 	serial: SerialConfig;
 	specs: Partial<Record<string, Spec>>;
 	bind: boolean | undefined;
+	location: boolean;
+	stack: number;
 };
 
 type CommonCreateOptions = {
@@ -56,6 +64,8 @@ type CommonCreateOptions = {
 	redact?: Redactor | Array<Redactor>;
 	truncate?: number;
 	bind?: boolean;
+	location?: boolean;
+	stack?: boolean | number;
 };
 
 type StreamCreateOptions = CommonCreateOptions & { stream: Writable };
@@ -258,6 +268,11 @@ function makeProxy<T extends Proxiable>(
 				result: serialize(output, graph, new Set(), config.serial),
 				timestamp: Date.now(),
 			};
+
+			if (config.location && /^(apply|construct)$/.test(trap))
+				rekording.location = trace.location(target);
+			if (config.stack > 0) rekording.stack = trace.stack(config.stack);
+
 			if (!config.filter || config.filter(rekording))
 				config.write(rekording);
 
@@ -297,13 +312,45 @@ export function create<T extends Proxiable>(
 		redactors: redact ? (Array.isArray(redact) ? redact : [redact]) : [],
 		truncate: options.truncate ?? Infinity,
 	};
+	const location = options.location === true;
+	// `true` records every frame there is; a number records up to that many.
+	const stack =
+		options.stack === true
+			? Infinity
+			: options.stack === false || options.stack === undefined
+				? 0
+				: options.stack;
+
+	if (stack !== Infinity && !(Number.isInteger(stack) && stack >= 0))
+		throw new RangeError(
+			`flugrekorder: \`stack\` takes true or a frame count, not ${stack}`,
+		);
+	if (location && !trace.hasLocation())
+		throw new Error(
+			'flugrekorder: `location` needs node:inspector, which this runtime does not provide',
+		);
+	if (stack > 0 && !trace.hasStack())
+		throw new Error(
+			'flugrekorder: `stack` needs a runtime that reports call stacks',
+		);
+
 	const graph = new Graph(options.id ?? 0);
 	const specs = makeSpecs(options.bind);
 
 	return makeProxy(
 		target,
 		graph,
-		{ write, recursive, only, filter, serial, specs, bind: options.bind },
+		{
+			write,
+			recursive,
+			only,
+			filter,
+			serial,
+			specs,
+			bind: options.bind,
+			location,
+			stack,
+		},
 		null,
 	);
 }

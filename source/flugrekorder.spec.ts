@@ -37,10 +37,12 @@ describe('source/flugrekorder', () => {
 			'isProxiable',
 			'format',
 			'getAncestors',
+			'getLocation',
 			'getOrigin',
 			'getPath',
 			'getProxyById',
 			'getTarget',
+			'registerStackParser',
 		] as const;
 
 		// act

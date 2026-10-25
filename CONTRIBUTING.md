@@ -18,6 +18,17 @@ npm run typecheck      # type check only (node strips types, it does not check t
 npm run test:coverage  # run the test suite with a coverage summary
 ```
 
+### In browsers
+
+`npm run test:browser` builds the IIFE and runs `test/**/*.browser.ts` in Chromium (V8), Firefox (SpiderMonkey) and WebKit (JavaScriptCore) through [Playwright](https://playwright.dev). The browsers are a separate download, once:
+
+```sh
+npx playwright install chromium firefox webkit
+npm run test:browser
+```
+
+These tests are not part of `npm test`; CI runs them in a job of their own.
+
 Type stripping only supports erasable syntax: write type assertions as `value as T`, not `<T>value`, and import relative files with their `.ts` extension. `tsconfig.json` enforces both.
 
 ## Building
