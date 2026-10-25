@@ -1,5 +1,6 @@
 import { Graph } from './graph.ts';
-import type { Origin, Proxiable } from './types.ts';
+import { hasLocation, location } from './trace.ts';
+import type { Origin, Proxiable, SourceLocation } from './types.ts';
 
 /** Returns the original unwrapped target of a proxy, or `null` for non-proxies. */
 export function getTarget(pxy: Proxiable): Proxiable | null {
@@ -73,4 +74,17 @@ export function getPath(pxy: Proxiable): string {
 	}
 
 	return parts.join('.');
+}
+
+/**
+ * Returns where the function behind a proxy is defined. Returns `null` for
+ * non-proxies, proxies of anything other than a function, functions without
+ * a source location (native functions), and runtimes without `node:inspector`.
+ */
+export function getLocation(pxy: Proxiable): SourceLocation | null {
+	const target = getTarget(pxy);
+
+	return typeof target === 'function' && hasLocation()
+		? location(target)
+		: null;
 }

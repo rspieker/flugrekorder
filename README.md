@@ -362,6 +362,8 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
 | `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
 | `bind` | `boolean` | `undefined` | Controls how flugrekorder handles classes with `#` private fields. See [Private fields](#private-fields-bind). |
+| `location` | `boolean` | `false` | Adds `location` to `apply` and `construct` records: where the called function is defined. See [Where code lives](#where-code-lives-location-and-stack). |
+| `stack` | `boolean \| number` | `false` | Adds `stack` to every record: the call stack that made the trap fire. `true` records every frame (up to 200, Node.js's limit), a number up to that many. See [Where code lives](#where-code-lives-location-and-stack). |
 
 One of `callback` or `stream` is required.
 
@@ -435,6 +437,40 @@ getPath(p.a.b.fn()); // 'a.b.fn()'
 
 ---
 
+### `getLocation(proxy)`
+
+Returns where the function behind a proxy is defined, as a `SourceLocation`. Returns `null` for non-proxies, for proxies of anything but a function, for functions without a source location (native functions), and outside Node.js. Works without the `location` option.
+
+```ts
+import { create, getLocation } from 'flugrekorder';
+
+const greeter = create(require('greeter'), { callback: () => {} });
+
+getLocation(greeter.greet); // { file: 'node_modules/greeter/index.js', line: 1, column: 31 }
+getLocation(Math.max);      // null  (not a proxy)
+```
+
+---
+
+### `registerStackParser(parser)`
+
+Adds a `StackParser` ahead of the built-in ones, for an engine with a stack format of its own — or to read a known format differently. Call it once; every `create()` with `stack` uses it from then on. Each line of `Error.stack` goes to the parsers in turn; the first to return a frame wins, and lines no parser understands are skipped. Parsers are only used where call stacks come as `Error.stack` strings (browsers): Node.js reports structured call sites, which need no parsing.
+
+```ts
+import { registerStackParser } from 'flugrekorder';
+
+// an engine reporting frames as `name (url line:column)`
+registerStackParser((line) => {
+  const match = line.match(/^(\S+) \((.+) (\d+):(\d+)\)$/);
+
+  return match
+    ? { file: match[2], line: Number(match[3]), column: Number(match[4]), function: match[1] }
+    : undefined;
+});
+```
+
+---
+
 ### `getTarget(proxy)`
 
 Returns the original unwrapped target of a proxy. Returns `null` for non-proxies.
@@ -488,6 +524,8 @@ type Rekording = {
   args: Array<Serialized>; // trap arguments
   result: Serialized;      // return value
   timestamp: number;       // Date.now() at the moment the trap fired
+  location?: SourceLocation | null; // with `location`, on apply/construct records: where the called function is defined
+  stack?: Array<StackFrame>;        // with `stack`: the call stack that made the trap fire, nearest frame first
 };
 ```
 
@@ -565,6 +603,52 @@ So a flugrekorder proxy does not wrap the real target. It wraps an empty stand-i
 For this to work, every trap has a handler, including those left out of `only`: those are relayed to the target without being recorded.
 
 **Known limitation** — this concerns explicit redefinition only; assignment behaves as on the target. Once the proxy has *described* a non-configurable, read-only property (`Object.getOwnPropertyDescriptor`, spread, `Object.keys` on a frozen object, …), calling `Object.defineProperty` or `Reflect.defineProperty` on the proxy with the raw value taken from the real target is refused: `Reflect.defineProperty` returns `false`, `Object.defineProperty` throws. On the real target that call can only be a no-op — a frozen property can only be redefined to what it already is. The engine holds the caller's descriptor against the stand-in's copy after the trap returns, so the trap can only choose between refusing (`false`) and the engine throwing; it refuses. Redefining with the descriptor read through the proxy works.
+
+### Where code lives (`location` and `stack`)
+
+A record says *what* happened. Two options add *where*: `location` names the file a called function is defined in, `stack` the files the call came through. `stack` works in Node.js and in browsers; `location` is Node.js only. `create()` throws when an option is asked for in a runtime that cannot provide it.
+
+Here an application calls a dependency, `welcome`, which calls the wrapped one, `greeter`:
+
+```ts
+// src/app.mjs
+const greeter = create(require('greeter'), {
+  only: ['get', 'apply'],
+  location: true,
+  stack: 3,
+  callback(r) {
+    if (r.trap === 'apply') console.log(JSON.stringify({ location: r.location, stack: r.stack }));
+  },
+});
+const { welcome } = require('welcome');
+
+welcome(greeter, 'world');
+```
+
+```json
+{"location":{"file":"node_modules/greeter/index.js","line":1,"column":31},
+ "stack":[{"file":"node_modules/welcome/index.js","line":2,"column":17,"function":"welcome"},
+          {"file":"src/app.mjs","line":15,"column":1,"function":""},
+          {"file":"node:internal/modules/esm/module_job","line":343,"column":25,"function":"run"}]}
+```
+
+Paths are just paths: which package a file belongs to — `node_modules/<name>`, or the application itself — is for whoever reads the records to decide.
+
+- **`stack`** uses `util.getCallSites` in Node.js, which honours `--enable-source-maps`; elsewhere it reads `Error.stack` (see [In browsers](#in-browsers)). flugrekorder's own frames are left out: the recorder is not part of what it records. A frame count is a cost control as much as a filter: capturing a stack costs roughly 10–50µs per record, growing with the number of frames captured, so `stack: 10` on a deep stack is a lot cheaper than `stack: true`. Combine it with `only` to capture stacks only for the traps you need.
+- **`location`** asks V8 where a function is defined, through an in-process `node:inspector` session. Bound functions and proxies are followed to the function they call. Positions are as V8 reports them: the `class` keyword for classes, the opening parenthesis of the parameter list for functions. The lookup takes tens of microseconds, once per function; after that it is cached. The debugger is never enabled — it would slow the application down, and disabling it again disturbs coverage tools such as c8 — so script URLs come from V8's best-effort coverage data instead, collected once for every script not seen before.
+
+#### In browsers
+
+Browsers report call stacks as `Error.stack` strings only, so flugrekorder parses them: the format V8 uses (Chrome, Edge), and the one SpiderMonkey (Firefox) and JavaScriptCore (Safari) share. Tests run the same scenarios in all three engines.
+
+- **Files are URLs, as the browser reports them**: in a browser, the domain is the working directory.
+- **Columns differ per engine**: each points at a different part of the call — V8 and SpiderMonkey at its start, JavaScriptCore just past the function being called. Lines agree.
+- **Function names are as each engine reports them.** V8 prefixes a method call with its receiver's type (`Greeter.greet`, where Node.js reports `greet`), and SpiderMonkey makes up names for anonymous functions (`window.samples/<.anonymous<`). The string doesn't tell a prefix from a name with a dot in it, so names are not altered.
+- **Safari reports no frames for eval'd code**, so there are none to record.
+- **Frames of flugrekorder further down a stack stay**: bundled into an application, its code shares the application's file, so only the frames above the trap can be dropped — by position. They only appear when a trap fired inside another, and that other trap has a record of its own.
+- **Source maps are not applied**: positions are those of the code that ran. A bundle's source map turns them back into original files and lines afterwards.
+
+Engines with a format of their own can be taught with [`registerStackParser`](#registerstackparserparser).
 
 ### `wrap` vs `wrapKnown`
 
@@ -675,6 +759,8 @@ type Rekording = {
   args: Array<Serialized>;
   result: Serialized;
   timestamp: number;
+  location?: SourceLocation | null;
+  stack?: Array<StackFrame>;
 };
 ```
 
@@ -686,6 +772,35 @@ type Rekording = {
 | `args` | `Array<Serialized>` | Arguments passed to the trap |
 | `result` | `Serialized` | Return value from the trap |
 | `timestamp` | `number` | When the trap fired |
+| `location` | `SourceLocation \| null` | With the `location` option, on `apply` and `construct` records: where the called function is defined; `null` for native functions |
+| `stack` | `Array<StackFrame>` | With the `stack` option: the call stack that made the trap fire, nearest frame first |
+
+### `SourceLocation`
+A position in a source file. `file` is a path in unix notation, relative to `process.cwd()` at the time it is recorded — or a name that is not a file, as Node.js reports it (`node:fs`, `''` for eval'd code). `line` and `column` are 1-based.
+
+```ts
+type SourceLocation = {
+  file: string;
+  line: number;
+  column: number;
+};
+```
+
+### `StackFrame`
+One frame of a call stack: the position of the call, and the name of the function it is made from (`''` for anonymous functions and top-level code).
+
+```ts
+type StackFrame = SourceLocation & {
+  function: string;
+};
+```
+
+### `StackParser`
+Reads one line of an `Error.stack` string as a `StackFrame`, or returns `undefined` for a line it does not understand. See [`registerStackParser`](#registerstackparserparser).
+
+```ts
+type StackParser = (line: string) => StackFrame | undefined;
+```
 
 ### `Serialized`
 Serialized recorded values can be:
