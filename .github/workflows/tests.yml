@@ -1,11 +1,14 @@
 name: Tests
 
+# Branches are tested through their pull request; pushing to a branch with an
+# open pull request would otherwise start every job twice. Pushes are tested
+# only where branches are merged into.
 on:
   push:
-    branches: [main, release, "fix/*", "feat/*"]
+    branches: [main, release]
     paths-ignore: ["**.md"]
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
     paths-ignore: ["**.md"]
 
 jobs:
