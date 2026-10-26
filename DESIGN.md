@@ -129,6 +129,7 @@ flowchart TD
 | Proxy stability guarantee | Same object → same proxy, regardless of how many times it is accessed |
 | Native slot detection + bind cache | Allows `Map`, `Set`, `WeakMap`, `WeakSet`, `Date` to be proxied and recorded; probe runs once per prototype, bind cache maintains stability for method results |
 | No double-wrapping guard | Prevents infinite loops when proxied values are passed back into proxied functions |
+| Weak ID index + lineage | The index by ID held every node strongly, so a session kept everything it touched alive — a leak in any long-running process. It now holds `WeakRef`s, with a `FinalizationRegistry` removing entries of collected nodes; a node lives as long as its target. Each node's lineage (ID, origin, parent lineage) keeps paths intact without keeping ancestors alive |
 | Stand-in (shadow) target | The engine checks invariants against the proxy's own target. Wrapping an empty stand-in, synced only as far as the invariants demand, lets frozen and read-only values be proxied — and recorded — instead of passed through raw |
 
 ## What was abandoned and why
