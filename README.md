@@ -328,7 +328,7 @@ Without the memory limit, the same run reports `{"exit":"normalise","growth":213
 
 - **`maxRSS`, not `heapUsed`.** Garbage collection can run between the spike and the sample, so the heap may look fine afterwards. `maxRSS` is a high-water mark: its growth per call is what each call cost at its worst. `Buffer` contents count towards `external`, not the heap.
 - **`writeSync`, not `stream`.** A Writable buffers in memory, adding to the spike, and whatever is still buffered when the process dies is lost.
-- **`recursive: false`.** Proxying the payload records every element read and keeps every one of them alive in the graph. The recorder becomes the leak.
+- **`recursive: false`.** Proxying the payload records every element read and creates a proxy for each, which takes memory of its own for as long as the payload lives. The recorder becomes the spike.
 - **`depth: 0`.** The default `depth: Infinity` serializes plain-object arguments by value, so a `Buffer` argument is serialized byte by byte. Here it also stops the `apply` record from serializing `this`, which is the `enter` proxy: reading its keys would fire its `get` trap and log entries that never happened.
 
 The record names the call, not the line. Wrap the internals of the call it points at and run again, or take a heap snapshot at the limit (`node --heapsnapshot-near-heap-limit=1`) to see what filled it. The runnable version is [`examples/07-memory-spike.ts`](examples/07-memory-spike.ts).
@@ -403,7 +403,7 @@ getOrigin(p.a);  // { trap: 'get', parent: '#1', key: 'a' }
 
 ### `getAncestors(proxy)`
 
-Walks the origin chain from the root proxy down to `proxy` and returns every step as an ordered array of `{ proxy, origin }` pairs, root first. Returns an empty array for non-proxies.
+Walks the origin chain from the root proxy down to `proxy` and returns every step as an ordered array of `{ id, proxy, origin }`, root first. The chain is complete even when ancestors have been garbage collected; the `proxy` of such a step is then `undefined`. Returns an empty array for non-proxies.
 
 ```ts
 import { create, getAncestors } from 'flugrekorder';
@@ -412,9 +412,9 @@ const p = create({ a: { b: { c: 1 } } }, { callback: () => {} });
 
 getAncestors(p.a.b);
 // [
-//   { proxy: <root>, origin: null },
-//   { proxy: <a>,    origin: { trap: 'get', parent: '#1', key: 'a' } },
-//   { proxy: <b>,    origin: { trap: 'get', parent: '#2', key: 'b' } },
+//   { id: '#1', proxy: <root>, origin: null },
+//   { id: '#2', proxy: <a>,    origin: { trap: 'get', parent: '#1', key: 'a' } },
+//   { id: '#3', proxy: <b>,    origin: { trap: 'get', parent: '#2', key: 'b' } },
 // ]
 ```
 
@@ -489,7 +489,7 @@ getTarget({});           // null
 
 ### `getProxyById(id, proxy)`
 
-Looks up a proxy by its recorded ID within the same graph as `proxy`. Useful for resolving `{ $proxy: id }` references in recorded args and results back to live proxy objects. Returns `undefined` if the ID is not found.
+Looks up a proxy by its recorded ID within the same graph as `proxy`. Useful for resolving `{ $proxy: id }` references in recorded args and results back to live proxy objects. Returns `undefined` if the ID is not found, or its object has been garbage collected.
 
 ```ts
 import { create, getProxyById, type Rekording } from 'flugrekorder';
@@ -578,7 +578,11 @@ Note the `let p!: typeof …` pattern: the callback closes over `p` before it is
 
 Every `create()` call produces an isolated `Graph` — a session-scoped registry that maps proxies, targets, and IDs to each other. Once all references to a proxied tree are dropped, the graph is eligible for garbage collection. There are no module-level leaks between independent recordings.
 
-While a session is alive, though, it holds on to everything it has touched: the graph indexes every proxy by ID so `getProxyById` can resolve it, which keeps each proxy — and its target — reachable for as long as any proxy in the graph is. A recursive recording that walks a large data structure retains all of it. When memory is what you are investigating, wrap code boundaries with `recursive: false` rather than the data flowing through them (see [Find the call behind a memory spike](#find-the-call-behind-a-memory-spike)).
+A session doesn't keep objects alive either: a proxy and its graph entry live exactly as long as the object behind it. The index by ID holds its entries through `WeakRef`s, and a `FinalizationRegistry` removes the entries of objects that have been collected. So `getProxyById` resolves an ID for as long as its object exists — and returns `undefined` after that — and a long-running process can record without its memory growing with everything that passed through it. Runtimes without `WeakRef` or `FinalizationRegistry` keep entries strongly instead.
+
+Paths survive collection: every proxy carries its *lineage* — its ID and origin, and its parent's lineage — which holds no application objects. A certificate kept from a `parse()` result that has since been collected still has the path `parse().certificate`.
+
+Objects behind a `WeakRef` stay alive until the task that touched them has ended, so in one long synchronous run, nothing is released until it is over. Recording still costs memory while objects are alive: a proxy per object reached. When memory is what you are investigating, wrap code boundaries with `recursive: false` rather than the data flowing through them (see [Find the call behind a memory spike](#find-the-call-behind-a-memory-spike)).
 
 ### Structured origin
 

@@ -64,7 +64,7 @@ const id = () => `#${++seq}`;
 
 // Replace every method with its own non-recursive proxy. The payload passing
 // through is never proxied — proxying a 70MB document would record every
-// element read, and the graph would keep every one of them alive.
+// element read, and create a proxy for each of them.
 function exits<T extends Record<string, unknown>>(module: T, name: string): T {
 	for (const [key, fn] of Object.entries(module)) {
 		if (typeof fn !== 'function') continue;

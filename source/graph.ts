@@ -1,5 +1,17 @@
-import { isProxiable } from './types.ts';
 import type { Origin, Proxiable } from './types.ts';
+import { isProxiable } from './types.ts';
+
+/**
+ * How a proxy was reached: its ID and origin, and how its parent was reached.
+ * A lineage holds no application objects, so a proxy that is still in use
+ * keeps the lineage of its ancestors — and with it its path — without
+ * keeping the ancestors themselves alive.
+ */
+export type Lineage = {
+	readonly id: string;
+	readonly origin: Origin;
+	readonly parent: Lineage | null;
+};
 
 /** A node in the proxy graph — links a proxy to its original target, its origin, and its ID. */
 export type GraphNode = {
@@ -7,7 +19,11 @@ export type GraphNode = {
 	readonly proxy: Proxiable;
 	readonly target: Proxiable;
 	readonly origin: Origin;
+	readonly lineage: Lineage;
 };
+
+/** An entry in the ID index: a `WeakRef`, or where the runtime has none, a strong stand-in for one. */
+type Entry = { deref(): GraphNode | undefined };
 
 /**
  * Session-scoped proxy registry.
@@ -33,7 +49,21 @@ export class Graph {
 		Graph.#all.add(pxy);
 	}
 
-	#byId = new Map<string, GraphNode>();
+	// Nodes by ID, held weakly: a node lives as long as its target does,
+	// through #byTarget, so the session keeps nothing alive itself, and an ID
+	// resolves for as long as its object exists. #collected removes the entries
+	// of collected nodes; until it has, an emptied entry reads as missing.
+	#byId = new Map<string, Entry>();
+	// Runtimes without WeakRef or FinalizationRegistry keep nodes by ID
+	// strongly, as every runtime did before.
+	#weak =
+		typeof WeakRef === 'function' &&
+		typeof FinalizationRegistry === 'function';
+	#collected = this.#weak
+		? new FinalizationRegistry<string>((id) => {
+				if (!this.#byId.get(id)?.deref()) this.#byId.delete(id);
+			})
+		: undefined;
 	#byProxy = new WeakMap<Proxiable, GraphNode>();
 	#byTarget = new WeakMap<Proxiable, GraphNode>();
 	#generator: () => string;
@@ -60,8 +90,13 @@ export class Graph {
 	getByTarget(v: Proxiable): GraphNode | undefined {
 		return this.#byTarget.get(v);
 	}
+	/** Returns the node with `id`, or `undefined` when there is none — never was, or no longer: its object has been collected. */
 	getById(id: string): GraphNode | undefined {
-		return this.#byId.get(id);
+		const node = this.#byId.get(id)?.deref();
+
+		if (!node) this.#byId.delete(id);
+
+		return node;
 	}
 
 	register(
@@ -70,9 +105,22 @@ export class Graph {
 		origin: Origin,
 		id: string,
 	): GraphNode {
-		const node: GraphNode = { id, proxy, target, origin };
+		// The parent is alive: it is the proxy whose trap is creating this one.
+		const parent = origin
+			? this.getById('parent' in origin ? origin.parent : origin.source)
+			: undefined;
+		const lineage: Lineage = {
+			id,
+			origin,
+			parent: parent?.lineage ?? null,
+		};
+		const node: GraphNode = { id, proxy, target, origin, lineage };
 
-		this.#byId.set(id, node);
+		this.#byId.set(
+			id,
+			this.#weak ? new WeakRef(node) : { deref: () => node },
+		);
+		this.#collected?.register(node, id);
 		this.#byProxy.set(proxy, node);
 		this.#byTarget.set(target, node);
 		Graph.#index.set(proxy, this);
