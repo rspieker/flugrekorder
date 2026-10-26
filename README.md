@@ -658,15 +658,19 @@ Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable 
 
 Some native code rejects a `Proxy` as `this` or as an argument — V8 checks the real target at the C++ level before any JS runs. flugrekorder catches these failures, retries with the unwrapped real target, and records the crossing with a synthetic trap name so it remains visible in the rekording.
 
-**`apply:native`** — a C++ method threw `TypeError: Illegal invocation` because `this` was a Proxy. The real target is substituted for `this` and the call is retried. The unwrapped `this` appears as `{ $unwrap: { $proxy: "<id>" } }` in `args[1]`.
+**`apply:native`** — a host method (Node.js, DOM) rejected a Proxy as `this`: `Illegal invocation` in V8, `… does not implement interface …` in SpiderMonkey, `Can only call … on instances of …` in JavaScriptCore. The real target is substituted for `this` and the call is retried. The unwrapped `this` appears as `{ $unwrap: { $proxy: "<id>" } }` in `args[1]`.
 
 **`apply:structure`** — a function internally passed a proxied argument to the [Structured Clone Algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm) (`structuredClone`, `postMessage`, `history.pushState`, …), which threw `DataCloneError`. flugrekorder unwraps any proxy arguments in the call and retries. Unwrapped args appear as `{ $unwrap: { $proxy: "<id>" } }` in `args[2]`.
+
+**Binary data is passed on unwrapped** — `ArrayBuffer`, `SharedArrayBuffer`, typed arrays and `DataView` reached through a proxy are not proxied themselves. Other built-ins read the bytes behind them directly (`new Uint8Array(buffer)`, `TextDecoder`, `crypto`, `structuredClone`, WebAssembly), and a proxy has none: they would throw, or silently read an empty array-like. Reading binary data is recorded; what is done with the bytes is not, which native code would not show through a proxy anyway. A root `create(buffer)` is proxied as asked.
+
+**Built-ins in every engine** — objects such as `Map`, `Set`, `Date` and WebAssembly's `Memory` keep their state in internal slots a proxy cannot carry. flugrekorder recognises them by probing a native method or getter through a blank proxy: a native function that throws a `TypeError` there has failed a brand check — however the engine words it.
 
 **Remaining gap** — a *direct* `structuredClone(proxy)` call that never passes through a flugrekorder trap cannot be intercepted; V8 resolves the proxy before any JS runs. Use `structuredClone(getTarget(proxy))` at the call site as a workaround.
 
 ### Private fields (`bind`)
 
-JavaScript `#` private fields are stored on the real instance. Accessing them with `this` as a Proxy throws `TypeError: Cannot read private member … from an object whose class did not declare it` — the engine enforces the class boundary at the field level.
+JavaScript `#` private fields and methods are stored on the real instance. Accessing them with `this` as a Proxy throws a `TypeError` — `Cannot read private member …` or `Receiver must be an instance of class …` in V8, `… private field or method: object is not the right class` in SpiderMonkey, `Cannot access invalid private field` in JavaScriptCore — the engine enforces the class boundary at the field level.
 
 The `bind` option controls how flugrekorder responds:
 

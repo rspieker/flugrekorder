@@ -1,9 +1,11 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { describe, test } from 'node:test';
 import fc from 'fast-check';
 import { each } from 'template-literal-each';
 import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder.ts';
+import { bytes, type Instantiate } from './fixtures/module.ts';
 import {
 	createTestProxyRecorder,
 	type Improbability,
@@ -506,6 +508,24 @@ describe('test/boundary', () => {
 			get value() { return this.#count; }
 		}
 
+		test('default (undefined): methods calling a #private method retry and emit apply:private', () => {
+			// V8 reports these differently from #private fields: "Receiver must be
+			// an instance of class Tally", rather than "… private member …".
+			class Tally {
+				#count = 1;
+				read() {
+					return this.#current();
+				}
+				#current() {
+					return this.#count;
+				}
+			}
+			const { records, proxy } = createTestProxyRecorder(new Tally());
+
+			assert.strictEqual(proxy.read(), 1);
+			assert.ok(records.some((r) => r.trap === 'apply:private'));
+		});
+
 		test('default (undefined): method calls retry automatically and emit apply:private', () => {
 			const records: Array<Rekording> = [];
 			const p = create(new Counter(), { callback: (r) => records.push(r) });
@@ -718,6 +738,107 @@ describe('test/boundary', () => {
 				() => (p as Improbability).clone(() => {}),
 				(e: unknown) =>
 					e instanceof DOMException && e.name === 'DataCloneError',
+			);
+		});
+	});
+
+	describe('binary data', () => {
+		// Built-ins that read the bytes behind binary data check its internal
+		// slots, which a proxy does not have: through a proxy they threw, or
+		// silently read an empty array-like. Binary data is passed on unwrapped.
+		const make = () => ({
+			buffer: new Uint8Array([1, 2, 3, 4]).buffer,
+			bytes: new Uint8Array([1, 2, 3, 4]),
+			view: new DataView(new Uint8Array([1, 2, 3, 4]).buffer),
+		});
+		const hash = (data: Improbability) =>
+			createHash('sha1').update(data).digest('hex');
+
+		test('binary data reached through a proxy works in other built-ins as the real thing', () => {
+			each`
+				message                              | read
+				------------------------------------ | ----
+				new Uint8Array(buffer)               | ${(o: Improbability) => Array.from(new Uint8Array(o.buffer))}
+				buffer.slice()                       | ${(o: Improbability) => Array.from(new Uint8Array(o.buffer.slice(1, 3)))}
+				new DataView(buffer)                 | ${(o: Improbability) => new DataView(o.buffer).getUint8(2)}
+				new Uint8Array(view.buffer)          | ${(o: Improbability) => Array.from(new Uint8Array(o.view.buffer))}
+				TextDecoder on a buffer              | ${(o: Improbability) => new TextDecoder().decode(o.buffer)}
+				TextDecoder on a typed array         | ${(o: Improbability) => new TextDecoder().decode(o.bytes)}
+				Buffer.from(buffer)                  | ${(o: Improbability) => Array.from(Buffer.from(o.buffer))}
+				a hash of a typed array              | ${(o: Improbability) => hash(o.bytes)}
+				structuredClone(typed array)         | ${(o: Improbability) => Array.from(structuredClone(o.bytes))}
+			`(({ message, read }: Improbability) => {
+				// arrange
+				const p = create(make(), { callback: () => {} });
+
+				// act / assert
+				assert.deepStrictEqual(read(p), read(make()), message);
+			});
+		});
+
+		test('binary data is passed on unwrapped, and reading it is recorded', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(make());
+
+			// act
+			const value = proxy.bytes;
+
+			// assert
+			assert.ok(!isFlugrekorder(value), 'not a proxy');
+			assert.ok(
+				records.some(
+					(r) => r.trap === 'get' && r.origin && 'key' in r.origin && r.origin.key === 'bytes',
+				),
+				'the read is recorded',
+			);
+		});
+	});
+
+	describe('WebAssembly', () => {
+		// The module in fixtures/module.ts imports `host.log`, exports `add` and
+		// its memory, and writes its second argument to memory as it adds.
+		async function load(callback: (r: Rekording) => void) {
+			const instantiate = (globalThis as Improbability).WebAssembly
+				.instantiate as Instantiate;
+			const host = create({ log: (_value: number) => {} }, { callback });
+			const { instance } = await instantiate(bytes, { host });
+
+			return create(instance.exports, { callback });
+		}
+
+		test('calls in both directions are recorded: into the module, and from it', async () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const exports = await load((r) => records.push(r));
+
+			// act
+			const sum = exports.add(2, 3);
+
+			// assert
+			// `log` returns first: the module calls it while `add` runs
+			assert.strictEqual(sum, 5);
+			assert.deepStrictEqual(
+				records.filter((r) => r.trap === 'apply').map((r) => (r.args[2] as Array<number>)),
+				[[2], [2, 3]],
+			);
+		});
+
+		test('memory works through the proxy, and growing it is recorded', async () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const exports = await load((r) => records.push(r));
+
+			// act
+			exports.add(2, 3);
+			const written = new Uint32Array(exports.memory.buffer)[0];
+			const pages = exports.memory.grow(1);
+
+			// assert
+			assert.strictEqual(written, 3, 'reads what the module wrote');
+			assert.strictEqual(pages, 1, 'grows from one page');
+			assert.ok(
+				records.some((r) => r.trap === 'apply' && (r.args[2] as Array<number>)[0] === 1 && r.result === 1),
+				'grow(1) is recorded',
 			);
 		});
 	});

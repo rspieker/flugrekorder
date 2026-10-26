@@ -6,7 +6,7 @@ import { serialize, origin as serializeOrigin } from './serialize.ts';
 import { Shadow } from './shadow.ts';
 import * as trace from './trace.ts';
 import type { Spec, Wrapper } from './specs.ts';
-import { makeSpecs } from './specs.ts';
+import { isBinary, makeSpecs } from './specs.ts';
 import type {
 	CallTrap,
 	Origin,
@@ -98,7 +98,7 @@ function makeProxy<T extends Proxiable>(
 	// return a new Promise that resolves to a proxy of the settled value.
 	if (target instanceof Promise) {
 		const chained = target.then((value) =>
-			isProxiable(value)
+			isProxiable(value) && !isBinary(value)
 				? makeProxy(value as Proxiable, graph, config, origin)
 				: value,
 		) as unknown as T;
@@ -116,7 +116,7 @@ function makeProxy<T extends Proxiable>(
 		(origin: () => Origin): Wrapper =>
 		(v) => {
 			if (!isProxiable(v) || Graph.isProxy(v as Proxiable)) return v;
-			if (!config.recursive) return v;
+			if (!config.recursive || isBinary(v)) return v;
 
 			return makeProxy(v as Proxiable, graph, config, origin());
 		};

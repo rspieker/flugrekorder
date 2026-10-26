@@ -8,8 +8,25 @@ export function unwrap(graph: Graph | undefined, value: unknown): unknown {
 }
 
 const isDataCloneDOMException = createErrorGuard('DataCloneError');
-const isTypeErrorPrivateMember = createErrorGuard('TypeError', /private member/i);
-const isTypeErrorIllegalInvocation = createErrorGuard('TypeError', /illegal invocation/i);
+// What engines report when `this` is a proxy rather than the instance that
+// holds a `#private` field or method:
+//   V8:             "Cannot read private member #x from an object whose class
+//                   did not declare it", "Receiver must be an instance of class X"
+//   SpiderMonkey:   "can't access private field or method: object is not the right class"
+//   JavaScriptCore: "Cannot access invalid private field", "Cannot access private method"
+const isTypeErrorPrivateMember = createErrorGuard(
+	'TypeError',
+	/private member|private field|private method|receiver must be an instance of class/i,
+);
+// What engines report when a host method (DOM, Node.js) is called on a proxy:
+//   V8:             "Illegal invocation"
+//   SpiderMonkey:   "'querySelector' called on an object that does not implement interface Document."
+//   JavaScriptCore: "Can only call Document.querySelector on instances of Document",
+//                   "The Document.body getter can only be used on instances of Document"
+const isTypeErrorIllegalInvocation = createErrorGuard(
+	'TypeError',
+	/illegal invocation|does not implement interface|can only call .+ on instances of|can only be used on instances of/i,
+);
 
 /** Retry handlers for native boundary crossings — defined once at module level. */
 export const retryFlows: Array<RetryFlow> = [
