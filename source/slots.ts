@@ -13,15 +13,27 @@ const slotProtos = new WeakMap<object, boolean>();
 // method is accessed on the same target — required for graph proxy stability.
 const bindCache = new WeakMap<object, Map<PropertyKey, AnyFn>>();
 
-// Slot-check TypeErrors have specific messages; filter by them to avoid
-// misclassifying TypeErrors thrown for other reasons (e.g. wrong arg count).
-const slotError = /incompatible receiver|this is not|illegal invocation/i;
+/**
+ * Returns true for functions implemented by the engine or the host rather
+ * than in JavaScript — every engine reports those as `[native code]`.
+ */
+function isNative(fn: AnyFn): boolean {
+	return /\{\s*\[native code\]\s*\}\s*$/.test(
+		Function.prototype.toString.call(fn),
+	);
+}
 
 /**
  * Returns true if `target`'s prototype chain contains a getter that throws
  * TypeError when called through a Proxy — the JS-observable signature of an
  * ECMAScript internal slot check (e.g. Map, Set, WeakMap, WeakSet, Date).
  * Result is cached per prototype so the probe runs at most once per type.
+ *
+ * A native function throwing a TypeError there is the signal: its receiver
+ * failed a brand check. Engines word that error differently — V8 says
+ * "incompatible receiver", SpiderMonkey "incompatible Proxy", JavaScriptCore
+ * "Map operation called on non-Map object", or just "Type error" — so the
+ * message is not looked at.
  */
 export function hasInternalSlots(target: Proxiable): boolean {
 	if (typeof target !== 'object' || target === null) return false;
@@ -53,8 +65,7 @@ export function hasInternalSlots(target: Proxiable): boolean {
 				try {
 					fn.call(probe);
 				} catch (e) {
-					if (e instanceof TypeError && slotError.test(String(e)))
-						slots = true;
+					if (e instanceof TypeError && isNative(fn)) slots = true;
 				}
 				slotProtos.set(direct, slots);
 				return slots;
