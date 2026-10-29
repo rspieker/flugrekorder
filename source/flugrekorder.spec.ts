@@ -96,9 +96,9 @@ describe('source/flugrekorder', () => {
 					trap                        | act
 					--------------------------- | ---
 					get                         | ${(p: Improbability) => p.x}
-					set                         | ${(p: Improbability) => {
-						p.x = 2;
-					}}
+					set                         | ${(p: Improbability) => {p.x = 2}}
+					has                         | ${(p: Improbability) => 'x' in p}
+					deleteProperty              | ${(p: Improbability) => delete p.x}
 					defineProperty              | ${(p: Improbability) => Object.defineProperty(p, 'x', { value: 2 })}
 					getOwnPropertyDescriptor    | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'x')}
 				`(({ trap, act }) => {
@@ -135,8 +135,6 @@ describe('source/flugrekorder', () => {
 				each<{ trap: string; act: (p: Improbability) => void }>`
 					trap                | act
 					------------------- | ---
-					has                 | ${(p: Improbability) => 'x' in p}
-					deleteProperty      | ${(p: Improbability) => delete p.x}
 					ownKeys             | ${(p: Improbability) => Reflect.ownKeys(p)}
 					getPrototypeOf      | ${(p: Improbability) => Object.getPrototypeOf(p)}
 					setPrototypeOf      | ${(p: Improbability) => Object.setPrototypeOf(p, null)}

@@ -78,6 +78,8 @@ type CreateOptions = StreamCreateOptions | CallbackCreateOptions;
 const propertyTraps: ReadonlySet<string> = new Set<PropertyTrap>([
 	'get',
 	'set',
+	'has',
+	'deleteProperty',
 	'defineProperty',
 	'getOwnPropertyDescriptor',
 ]);

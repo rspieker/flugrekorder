@@ -5,6 +5,8 @@ export type Proxiable = object;
 export type PropertyTrap =
 	| 'get'
 	| 'set'
+	| 'has'
+	| 'deleteProperty'
 	| 'defineProperty'
 	| 'getOwnPropertyDescriptor';
 
