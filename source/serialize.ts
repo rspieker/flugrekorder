@@ -55,15 +55,22 @@ function proxiable(
 	if (targetNode !== undefined) return { $unwrap: { $proxy: targetNode.id } };
 	if (depth >= serial.depth) return '[…]';
 
+	// Plain (unproxied) arrays and objects are serialized by value, with a
+	// circular-reference guard on the path from the root.
+	if (seen.has(v)) return { $proxy: '?' };
+
 	// Plain (unproxied) arrays are safe to iterate directly.
 	if (Array.isArray(v)) {
-		return (v as Array<unknown>).map((item) =>
+		seen.add(v);
+
+		const items = (v as Array<unknown>).map((item) =>
 			serialize(item, graph, seen, serial, depth + 1),
 		);
-	}
 
-	// Plain (unproxied) objects: serialize by value with a circular-reference guard.
-	if (seen.has(v)) return { $proxy: '?' };
+		seen.delete(v);
+
+		return items;
+	}
 
 	seen.add(v);
 
