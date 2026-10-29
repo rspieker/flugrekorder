@@ -1,6 +1,7 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
 import fc from 'fast-check';
+import { each } from 'template-literal-each';
 import {
 	createTestProxyRecorder,
 	type Improbability,
@@ -67,21 +68,108 @@ describe('source/flugrekorder', () => {
 	});
 
 	describe('core proxy', () => {
-		test('traps with no origin mapping (e.g. has) emit a rekording with null origin', () => {
-			// arrange
-			// act
-			const { records } = createTestProxyRecorder({ x: 1 }, (p) => {
-				'x' in p;
+		describe('origin', () => {
+			// A function with a property, so every trap has something to act on.
+			const target = () => {
+				const fn = function () {} as Improbability;
+				fn.x = 1;
+
+				return fn;
+			};
+
+			const recorded = (
+				trap: string,
+				act: (p: Improbability) => void,
+			) => {
+				const { records } = createTestProxyRecorder(target(), act);
+				const rec = records.find((r) => r.trap === trap);
+				assert.ok(rec, `${trap} record emitted`);
+
+				return rec;
+			};
+
+			test('traps about a property key name the parent and the key', () => {
+				// arrange
+				// act
+				// assert
+				each<{ trap: string; act: (p: Improbability) => void }>`
+					trap                        | act
+					--------------------------- | ---
+					get                         | ${(p: Improbability) => p.x}
+					set                         | ${(p: Improbability) => {
+						p.x = 2;
+					}}
+					defineProperty              | ${(p: Improbability) => Object.defineProperty(p, 'x', { value: 2 })}
+					getOwnPropertyDescriptor    | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'x')}
+				`(({ trap, act }) => {
+					assert.deepStrictEqual(
+						recorded(trap, act).origin,
+						{ trap, parent: '#1', key: 'x' },
+						`${trap} origin`,
+					);
+				});
 			});
 
-			// assert
-			const rec = records.find((r) => r.trap === 'has');
-			assert.ok(rec, 'has record emitted');
-			assert.strictEqual(
-				rec?.origin,
-				null,
-				'origin is null for traps outside the origin mapping',
-			);
+			test('traps that invoke the target name the source', () => {
+				// arrange
+				// act
+				// assert
+				each<{ trap: string; act: (p: Improbability) => void }>`
+					trap       | act
+					---------- | ---
+					apply      | ${(p: Improbability) => p()}
+					construct  | ${(p: Improbability) => new p()}
+				`(({ trap, act }) => {
+					assert.deepStrictEqual(
+						recorded(trap, act).origin,
+						{ trap, source: '#1' },
+						`${trap} origin`,
+					);
+				});
+			});
+
+			test('other traps have no origin', () => {
+				// arrange
+				// act
+				// assert
+				each<{ trap: string; act: (p: Improbability) => void }>`
+					trap                | act
+					------------------- | ---
+					has                 | ${(p: Improbability) => 'x' in p}
+					deleteProperty      | ${(p: Improbability) => delete p.x}
+					ownKeys             | ${(p: Improbability) => Reflect.ownKeys(p)}
+					getPrototypeOf      | ${(p: Improbability) => Object.getPrototypeOf(p)}
+					setPrototypeOf      | ${(p: Improbability) => Object.setPrototypeOf(p, null)}
+					isExtensible        | ${(p: Improbability) => Object.isExtensible(p)}
+					preventExtensions   | ${(p: Improbability) => Object.preventExtensions(p)}
+				`(({ trap, act }) => {
+					assert.strictEqual(
+						recorded(trap, act).origin,
+						null,
+						`${trap} origin`,
+					);
+				});
+			});
+
+			test('setting a proxy as prototype records only the setPrototypeOf', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ a: {}, b: {} },
+					{ callback: (r) => records.push(r) },
+				);
+				const { a, b } = p;
+				records.length = 0;
+
+				// act
+				Object.setPrototypeOf(a, b);
+
+				// assert
+				assert.deepStrictEqual(
+					records.map((r) => r.trap),
+					['setPrototypeOf'],
+				);
+			});
 		});
 
 		test('primitives are returned unchanged through get', () => {

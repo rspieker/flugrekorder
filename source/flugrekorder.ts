@@ -1,12 +1,13 @@
 import type { Writable } from 'node:stream';
 import type { GraphNode } from './graph.ts';
 import { Graph } from './graph.ts';
+import { retryFlows } from './retry.ts';
 import type { SerialConfig } from './serialize.ts';
 import { serialize, origin as serializeOrigin } from './serialize.ts';
 import { Shadow } from './shadow.ts';
-import * as trace from './trace.ts';
 import type { Spec, Wrapper } from './specs.ts';
 import { isBinary, makeSpecs } from './specs.ts';
+import * as trace from './trace.ts';
 import type {
 	CallTrap,
 	Origin,
@@ -16,7 +17,6 @@ import type {
 	Rekording,
 } from './types.ts';
 import { isProxiable } from './types.ts';
-import { retryFlows } from './retry.ts';
 
 export { format } from './format.ts';
 export type { StackParser } from './frames.ts';
@@ -73,6 +73,24 @@ type CallbackCreateOptions = CommonCreateOptions & {
 	callback: (record: Rekording) => void;
 };
 type CreateOptions = StreamCreateOptions | CallbackCreateOptions;
+
+/** Traps about a property key — their origin names the parent and the key. */
+const propertyTraps: ReadonlySet<string> = new Set<PropertyTrap>([
+	'get',
+	'set',
+	'defineProperty',
+	'getOwnPropertyDescriptor',
+]);
+
+/** Traps that invoke the target — their origin names the source. */
+const callTraps: ReadonlySet<string> = new Set<CallTrap>([
+	'apply',
+	'construct',
+]);
+
+const isPropertyTrap = (trap: string): trap is PropertyTrap =>
+	propertyTraps.has(trap);
+const isCallTrap = (trap: string): trap is CallTrap => callTraps.has(trap);
 
 /**
  * Creates a recording proxy for `target` within `graph`.
@@ -188,16 +206,11 @@ function makeProxy<T extends Proxiable>(
 			const rawArgs = shadow.forward(trap, caller);
 			const selfId = (graph.getByTarget(target) as GraphNode).id;
 
-			let childOrigin: Origin =
-				/get|set|defineProperty|getOwnPropertyDescriptor/.test(trap)
-					? {
-							trap: trap as PropertyTrap,
-							parent: selfId,
-							key: rawArgs[1] as string | symbol,
-						}
-					: /apply|construct/.test(trap)
-						? { trap: trap as CallTrap, source: selfId }
-						: null;
+			let childOrigin: Origin = isPropertyTrap(trap)
+				? { trap, parent: selfId, key: rawArgs[1] as string | symbol }
+				: isCallTrap(trap)
+					? { trap, source: selfId }
+					: null;
 
 			const wrap = wrapper(() => childOrigin);
 
@@ -269,7 +282,7 @@ function makeProxy<T extends Proxiable>(
 				timestamp: Date.now(),
 			};
 
-			if (config.location && /^(apply|construct)$/.test(trap))
+			if (config.location && isCallTrap(trap))
 				rekording.location = trace.location(target);
 			if (config.stack > 0) rekording.stack = trace.stack(config.stack);
 
