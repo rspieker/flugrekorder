@@ -11,12 +11,11 @@ import * as trace from './trace.ts';
 import type {
 	CallTrap,
 	Origin,
-	PropertyTrap,
 	Proxiable,
 	Redactor,
 	Rekording,
 } from './types.ts';
-import { isProxiable } from './types.ts';
+import { isCallTrap, isPropertyTrap, isProxiable } from './types.ts';
 
 export { format } from './format.ts';
 export type { StackParser } from './frames.ts';
@@ -73,26 +72,6 @@ type CallbackCreateOptions = CommonCreateOptions & {
 	callback: (record: Rekording) => void;
 };
 type CreateOptions = StreamCreateOptions | CallbackCreateOptions;
-
-/** Traps about a property key — their origin names the parent and the key. */
-const propertyTraps: ReadonlySet<string> = new Set<PropertyTrap>([
-	'get',
-	'set',
-	'has',
-	'deleteProperty',
-	'defineProperty',
-	'getOwnPropertyDescriptor',
-]);
-
-/** Traps that invoke the target — their origin names the source. */
-const callTraps: ReadonlySet<string> = new Set<CallTrap>([
-	'apply',
-	'construct',
-]);
-
-const isPropertyTrap = (trap: string): trap is PropertyTrap =>
-	propertyTraps.has(trap);
-const isCallTrap = (trap: string): trap is CallTrap => callTraps.has(trap);
 
 /**
  * Creates a recording proxy for `target` within `graph`.

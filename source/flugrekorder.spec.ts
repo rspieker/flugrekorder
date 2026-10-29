@@ -96,7 +96,7 @@ describe('source/flugrekorder', () => {
 					trap                        | act
 					--------------------------- | ---
 					get                         | ${(p: Improbability) => p.x}
-					set                         | ${(p: Improbability) => {p.x = 2}}
+					set                         | ${(p: Improbability) => Reflect.set(p, 'x', 2)}
 					has                         | ${(p: Improbability) => 'x' in p}
 					deleteProperty              | ${(p: Improbability) => delete p.x}
 					defineProperty              | ${(p: Improbability) => Object.defineProperty(p, 'x', { value: 2 })}
