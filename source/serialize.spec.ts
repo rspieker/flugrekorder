@@ -210,5 +210,41 @@ describe('source/serialize', () => {
 			>;
 			assert.deepStrictEqual(result.self, { $proxy: '?' });
 		});
+
+		test('an array that contains itself is serialised as { $proxy: "?" }', () => {
+			// arrange
+			const circular: Array<unknown> = [1];
+			circular.push(circular);
+
+			// act
+			const result = serialize(circular, new Graph(0));
+
+			// assert
+			assert.deepStrictEqual(result, [1, { $proxy: '?' }]);
+		});
+
+		test('an array and an object that contain each other are serialised as { $proxy: "?" }', () => {
+			// arrange
+			const list: Array<unknown> = [];
+			const object = { list };
+			list.push(object);
+
+			// act
+			const result = serialize(list, new Graph(0));
+
+			// assert
+			assert.deepStrictEqual(result, [{ list: { $proxy: '?' } }]);
+		});
+
+		test('a value referenced twice without a cycle is serialised in full both times', () => {
+			// arrange
+			const shared = [1, 2];
+
+			// act
+			const result = serialize({ a: shared, b: [shared] }, new Graph(0));
+
+			// assert
+			assert.deepStrictEqual(result, { a: [1, 2], b: [[1, 2]] });
+		});
 	});
 });
