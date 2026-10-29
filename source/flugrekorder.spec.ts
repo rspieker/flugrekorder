@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { Writable } from 'node:stream';
 import { describe, test } from 'node:test';
 import fc from 'fast-check';
 import { each } from 'template-literal-each';
@@ -617,6 +618,37 @@ describe('source/flugrekorder', () => {
 	});
 
 	describe('options', () => {
+		describe('stream or callback', () => {
+			test('a stream and a callback exclude each other', () => {
+				// arrange
+				// act
+				// assert: `npm run typecheck` fails when this call stops being an error
+				const both = () =>
+					// @ts-expect-error records go to a stream or a callback, not both
+					create({}, { stream: new Writable(), callback: () => {} });
+
+				assert.strictEqual(typeof both, 'function');
+			});
+
+			test('an undefined stream sends records to the callback', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ x: 1 },
+					{ stream: undefined, callback: (r) => records.push(r) },
+				);
+
+				// act
+				p.x;
+
+				// assert
+				assert.deepStrictEqual(
+					records.map((r) => r.trap),
+					['get'],
+				);
+			});
+		});
+
 		describe('only', () => {
 			test('restricts which traps emit records', () => {
 				// arrange

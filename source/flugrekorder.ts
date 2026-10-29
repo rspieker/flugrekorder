@@ -67,9 +67,14 @@ type CommonCreateOptions = {
 	stack?: boolean | number;
 };
 
-type StreamCreateOptions = CommonCreateOptions & { stream: Writable };
+// Records go to either a stream or a callback: `never` rules out passing both.
+type StreamCreateOptions = CommonCreateOptions & {
+	stream: Writable;
+	callback?: never;
+};
 type CallbackCreateOptions = CommonCreateOptions & {
 	callback: (record: Rekording) => void;
+	stream?: never;
 };
 type CreateOptions = StreamCreateOptions | CallbackCreateOptions;
 
@@ -294,7 +299,7 @@ export function create<T extends Proxiable>(
 	options: CreateOptions,
 ): T {
 	const write: (r: Rekording) => void =
-		'stream' in options
+		options.stream !== undefined
 			? (r) => options.stream.write(`${JSON.stringify(r)}\n`)
 			: options.callback;
 	const recursive = options.recursive !== false;
