@@ -744,7 +744,7 @@ Describes how a proxy was created. Every proxied value carries its `Origin` so y
 
 ```ts
 type Origin =
-  | { trap: 'get' | 'set' | 'defineProperty' | 'getOwnPropertyDescriptor'; parent: string; key: string | symbol }
+  | { trap: 'get' | 'set' | 'has' | 'deleteProperty' | 'defineProperty' | 'getOwnPropertyDescriptor'; parent: string; key: string | symbol }
   | { trap: 'apply' | 'construct'; source: string }
   | null;
 ```

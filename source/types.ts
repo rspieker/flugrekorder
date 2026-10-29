@@ -1,21 +1,42 @@
 import type { Graph } from './graph.ts';
 export type Proxiable = object;
 
+const propertyTraps = [
+	'get',
+	'set',
+	'has',
+	'deleteProperty',
+	'defineProperty',
+	'getOwnPropertyDescriptor',
+] as const;
+
+const callTraps = [
+	'apply',
+	'construct',
+	'apply:native',
+	'construct:native',
+	'apply:structure',
+	'apply:private',
+] as const;
+
 /** Reflect traps that operate on a property — carry a parent ID and key in their origin. */
-export type PropertyTrap =
-	| 'get'
-	| 'set'
-	| 'defineProperty'
-	| 'getOwnPropertyDescriptor';
+export type PropertyTrap = (typeof propertyTraps)[number];
 
 /** Reflect traps that invoke a callable — carry a source ID in their origin. Includes synthetic variants for native boundary crossings. */
-export type CallTrap =
-	| 'apply'
-	| 'construct'
-	| 'apply:native'
-	| 'construct:native'
-	| 'apply:structure'
-	| 'apply:private';
+export type CallTrap = (typeof callTraps)[number];
+
+const propertyTrapSet: ReadonlySet<string> = new Set(propertyTraps);
+const callTrapSet: ReadonlySet<string> = new Set(callTraps);
+
+/** Returns true for the traps whose origin names a parent and a key. */
+export function isPropertyTrap(trap: string): trap is PropertyTrap {
+	return propertyTrapSet.has(trap);
+}
+
+/** Returns true for the traps whose origin names a source, synthetic variants included. */
+export function isCallTrap(trap: string): trap is CallTrap {
+	return callTrapSet.has(trap);
+}
 
 /** Describes how a proxy was created — which trap fired, on which parent, and under which key or source. Null for root proxies. */
 export type Origin =
