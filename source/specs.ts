@@ -9,6 +9,20 @@ export type Wrapper = (v: unknown) => unknown;
 // Not exposed as a global; reached via the prototype chain of any TypedArray.
 const TypedArray = Object.getPrototypeOf(Int8Array);
 
+// WebAssembly's JavaScript objects check their receiver like ECMAScript
+// built-ins do. Not every runtime has WebAssembly, and the ES library types
+// do not declare it.
+type Constructor = abstract new (...args: never) => object;
+const { WebAssembly: wasm } = globalThis as {
+	WebAssembly?: Record<
+		'Memory' | 'Table' | 'Global' | 'Module' | 'Instance',
+		Constructor
+	>;
+};
+const webAssembly = wasm
+	? [wasm.Memory, wasm.Table, wasm.Global, wasm.Module, wasm.Instance]
+	: [];
+
 const ecmaBuiltins = [
 	Promise,
 	Map,
@@ -20,6 +34,7 @@ const ecmaBuiltins = [
 	ArrayBuffer,
 	TypedArray,
 	DataView,
+	...webAssembly,
 ];
 
 /**
@@ -39,6 +54,23 @@ function isECMABuiltin(v: unknown): boolean {
 /** Returns true when v is a C++ binding object that would crash Node.js if proxied. */
 function isUnsafeBinding(v: unknown): boolean {
 	return isProxiable(v) && hasInternalSlots(v) && !isECMABuiltin(v);
+}
+
+/**
+ * Returns true for binary data: `ArrayBuffer`, `SharedArrayBuffer`, typed
+ * arrays and `DataView`. Its own methods work through a proxy, but other
+ * built-ins read the bytes behind it directly — `new Uint8Array(buffer)`,
+ * `TextDecoder`, `crypto`, `structuredClone` — and those check the internal
+ * slots a proxy does not have: they throw, or silently treat it as an empty
+ * array-like. So binary data reached through a proxy is passed on unwrapped.
+ */
+export function isBinary(v: unknown): boolean {
+	return (
+		ArrayBuffer.isView(v) ||
+		v instanceof ArrayBuffer ||
+		(typeof SharedArrayBuffer === 'function' &&
+			v instanceof SharedArrayBuffer)
+	);
 }
 
 // Exported for testing only.

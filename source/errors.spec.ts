@@ -77,12 +77,12 @@ describe('source/errors', () => {
 
 			test('returns false for non-Error values', () => {
 				each<{ value: Improbability; label: string }>`
-					value              | label
-					------------------ | ---------------
-					${null}            | null
-					${undefined}       | undefined
-					${'TypeError: x'}  | string
-					${{name:'TypeError'}} | plain object with matching name
+					value                    | label
+					------------------------ | -------------------------------
+					${null}                  | null
+					${undefined}             | undefined
+					${'TypeError: x'}        | string
+					${{ name: 'TypeError' }} | plain object with matching name
 				`(({ value, label }: Improbability) => {
 					assert.ok(!isTypeError(value), label);
 				});

@@ -1,9 +1,15 @@
 import assert from 'node:assert/strict';
+import { createHash } from 'node:crypto';
 import { createServer } from 'node:http';
 import { describe, test } from 'node:test';
 import fc from 'fast-check';
 import { each } from 'template-literal-each';
-import { create, isFlugrekorder, type Rekording } from '../source/flugrekorder.ts';
+import {
+	create,
+	isFlugrekorder,
+	type Rekording,
+} from '../source/flugrekorder.ts';
+import { bytes, type Instantiate } from './fixtures/module.ts';
 import {
 	createTestProxyRecorder,
 	type Improbability,
@@ -454,27 +460,42 @@ describe('test/boundary', () => {
 		test('apply:native with non-proxiable thisArg passes it directly to retry', () => {
 			// When thisArg is null (not proxiable), isProxiable() is false and the retry
 			// uses it unchanged — no graph lookup needed.
-			const target = { fn() { throw new TypeError('Illegal invocation'); } };
+			const target = {
+				fn() {
+					throw new TypeError('Illegal invocation');
+				},
+			};
 			const p = create(target, { callback: () => {} });
-			const fnProxy = (p as Improbability).fn as (...args: never) => unknown;
+			const fnProxy = (p as Improbability).fn as (
+				...args: never
+			) => unknown;
 			assert.throws(() => Reflect.apply(fnProxy, null, []), TypeError);
 		});
 
 		test('apply:native with thisArg from a different graph falls back to the proxy', () => {
 			// When thisArg is a proxy from a different create() session, getByProxy()
 			// returns undefined for it — the ?? fallback reuses the proxy as-is.
-			const foreignProxy = create({ id: 'foreign' }, { callback: () => {} });
+			const foreignProxy = create(
+				{ id: 'foreign' },
+				{ callback: () => {} },
+			);
 			const isReal = new WeakSet<object>();
 			const obj: Record<string, unknown> = {
 				fn(this: object) {
-					if (!isReal.has(this)) throw new TypeError('Illegal invocation');
+					if (!isReal.has(this))
+						throw new TypeError('Illegal invocation');
 					return 'ok';
 				},
 			};
 			isReal.add(obj);
 			const p = create(obj, { callback: () => {} });
-			const fnProxy = (p as Improbability).fn as (...args: never) => unknown;
-			assert.throws(() => Reflect.apply(fnProxy, foreignProxy, []), TypeError);
+			const fnProxy = (p as Improbability).fn as (
+				...args: never
+			) => unknown;
+			assert.throws(
+				() => Reflect.apply(fnProxy, foreignProxy, []),
+				TypeError,
+			);
 		});
 
 		test('apply trap re-throws errors that are not "illegal invocation" TypeErrors', () => {
@@ -499,40 +520,144 @@ describe('test/boundary', () => {
 		});
 	});
 
+	describe('Node.js classes that check `this` themselves (ERR_INVALID_THIS)', () => {
+		// URLSearchParams is written in JavaScript and rejects a receiver that is
+		// not a URLSearchParams with a TypeError coded ERR_INVALID_THIS.
+		const params = () => new URLSearchParams('a=1&b=2');
+
+		test('methods retry with the real this and are recorded as apply:native', () => {
+			// arrange
+			each<{ act: (p: Improbability) => unknown; label: string }>`
+				act                                                  | label
+				---------------------------------------------------- | --------
+				${(p: Improbability) => p.get('b')}                  | get
+				${(p: Improbability) => p.has('a')}                  | has
+				${(p: Improbability) => p.toString()}                | toString
+				${(p: Improbability) => JSON.stringify([...p])}      | spread
+			`(({ act, label }) => {
+				const { records, proxy } = createTestProxyRecorder(params());
+
+				// act
+				const result = act(proxy);
+
+				// assert
+				assert.deepStrictEqual(result, act(params()), label);
+				assert.ok(
+					records.some((r) => r.trap === 'apply:native'),
+					`${label} recorded as apply:native`,
+				);
+			});
+		});
+
+		test('getters retry with the real target as receiver and are recorded as get', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(params());
+
+			// act
+			const size = (proxy as Improbability).size;
+
+			// assert
+			assert.strictEqual(size, 2);
+			assert.deepStrictEqual(
+				records.map((r) => [r.trap, r.result]),
+				[['get', 2]],
+			);
+		});
+
+		test('a TypeError with another code is not retried', () => {
+			// arrange
+			const target = {
+				fn() {
+					throw Object.assign(new TypeError('nope'), {
+						code: 'ERR_INVALID_ARG_TYPE',
+					});
+				},
+			};
+			const p = create(target, { callback: () => {} });
+
+			// act
+			// assert
+			assert.throws(() => (p as Improbability).fn(), {
+				code: 'ERR_INVALID_ARG_TYPE',
+			});
+		});
+	});
+
 	describe('private fields (#)', () => {
 		class Counter {
 			#count = 0;
-			increment() { this.#count++; }
-			get value() { return this.#count; }
+			increment() {
+				this.#count++;
+			}
+			get value() {
+				return this.#count;
+			}
 		}
+
+		test('default (undefined): methods calling a #private method retry and emit apply:private', () => {
+			// V8 reports these differently from #private fields: "Receiver must be
+			// an instance of class Tally", rather than "… private member …".
+			class Tally {
+				#count = 1;
+				read() {
+					return this.#current();
+				}
+				#current() {
+					return this.#count;
+				}
+			}
+			const { records, proxy } = createTestProxyRecorder(new Tally());
+
+			assert.strictEqual(proxy.read(), 1);
+			assert.ok(records.some((r) => r.trap === 'apply:private'));
+		});
 
 		test('default (undefined): method calls retry automatically and emit apply:private', () => {
 			const records: Array<Rekording> = [];
-			const p = create(new Counter(), { callback: (r) => records.push(r) });
+			const p = create(new Counter(), {
+				callback: (r) => records.push(r),
+			});
 
 			(p as Improbability).increment();
 			(p as Improbability).increment();
 
 			const internals = records.filter((r) => r.trap === 'apply:private');
-			assert.strictEqual(internals.length, 2, 'both calls retried as apply:private');
+			assert.strictEqual(
+				internals.length,
+				2,
+				'both calls retried as apply:private',
+			);
 		});
 
 		test('default (undefined): getter reads retry automatically and record as get', () => {
 			const records: Array<Rekording> = [];
-			const p = create(new Counter(), { callback: (r) => records.push(r) });
+			const p = create(new Counter(), {
+				callback: (r) => records.push(r),
+			});
 
 			(p as Improbability).increment();
 			const result = (p as Improbability).value;
 
 			assert.strictEqual(result, 1, 'getter returns correct value');
 			const getRecords = records.filter(
-				(r) => r.trap === 'get' && r.origin && 'key' in r.origin && r.origin.key === 'value',
+				(r) =>
+					r.trap === 'get' &&
+					r.origin &&
+					'key' in r.origin &&
+					r.origin.key === 'value',
 			);
-			assert.strictEqual(getRecords.length, 1, 'getter access recorded as get');
+			assert.strictEqual(
+				getRecords.length,
+				1,
+				'getter access recorded as get',
+			);
 		});
 
 		test('bind: false — no retry, throws on #private field access', () => {
-			const p = create(new Counter(), { bind: false, callback: () => {} });
+			const p = create(new Counter(), {
+				bind: false,
+				callback: () => {},
+			});
 
 			assert.throws(() => (p as Improbability).increment(), TypeError);
 		});
@@ -542,12 +667,18 @@ describe('test/boundary', () => {
 			// triggers a private-field TypeError is intentionally re-thrown.
 			class PrivateSetter {
 				#value = 0;
-				get val(): number { return this.#value; }
-				set val(v: number) { this.#value = v; }
+				get val(): number {
+					return this.#value;
+				}
+				set val(v: number) {
+					this.#value = v;
+				}
 			}
 			const p = create(new PrivateSetter(), { callback: () => {} });
 
-			assert.throws(() => { (p as Improbability).val = 42; }, TypeError);
+			assert.throws(() => {
+				(p as Improbability).val = 42;
+			}, TypeError);
 		});
 
 		test('bind: true — pre-binds methods, records as apply (no retry)', () => {
@@ -561,9 +692,17 @@ describe('test/boundary', () => {
 			(p as Improbability).increment();
 
 			const applies = appliesFor(records, 'increment');
-			assert.strictEqual(applies.length, 2, 'both calls recorded as apply');
+			assert.strictEqual(
+				applies.length,
+				2,
+				'both calls recorded as apply',
+			);
 			const internals = records.filter((r) => r.trap === 'apply:private');
-			assert.strictEqual(internals.length, 0, 'no apply:private — no retry needed');
+			assert.strictEqual(
+				internals.length,
+				0,
+				'no apply:private — no retry needed',
+			);
 		});
 
 		test('bind: true — getters work and record as get', () => {
@@ -585,10 +724,14 @@ describe('test/boundary', () => {
 			// directly without a graph lookup.
 			class HasPrivate {
 				#value = 0;
-				increment() { return ++this.#value; }
+				increment() {
+					return ++this.#value;
+				}
 			}
 			const p = create(new HasPrivate(), { callback: () => {} });
-			const fnProxy = (p as Improbability).increment as (...args: never) => unknown;
+			const fnProxy = (p as Improbability).increment as (
+				...args: never
+			) => unknown;
 			assert.throws(() => Reflect.apply(fnProxy, null, []), TypeError);
 		});
 
@@ -597,12 +740,22 @@ describe('test/boundary', () => {
 			// returns undefined for it — the ?? fallback reuses the proxy as the receiver.
 			class HasPrivate {
 				#value = 0;
-				increment() { return ++this.#value; }
+				increment() {
+					return ++this.#value;
+				}
 			}
-			const foreignProxy = create({ unrelated: true }, { callback: () => {} });
+			const foreignProxy = create(
+				{ unrelated: true },
+				{ callback: () => {} },
+			);
 			const p = create(new HasPrivate(), { callback: () => {} });
-			const fnProxy = (p as Improbability).increment as (...args: never) => unknown;
-			assert.throws(() => Reflect.apply(fnProxy, foreignProxy, []), TypeError);
+			const fnProxy = (p as Improbability).increment as (
+				...args: never
+			) => unknown;
+			assert.throws(
+				() => Reflect.apply(fnProxy, foreignProxy, []),
+				TypeError,
+			);
 		});
 
 		test('internal #field reads inside methods are not recorded regardless of bind', () => {
@@ -621,9 +774,16 @@ describe('test/boundary', () => {
 				(p as Improbability).increment();
 
 				const privateReads = records.filter(
-					(r) => r.origin && 'key' in r.origin && String(r.origin.key).startsWith('#'),
+					(r) =>
+						r.origin &&
+						'key' in r.origin &&
+						String(r.origin.key).startsWith('#'),
 				);
-				assert.strictEqual(privateReads.length, 0, 'no #field access in recording');
+				assert.strictEqual(
+					privateReads.length,
+					0,
+					'no #field access in recording',
+				);
 			});
 		});
 	});
@@ -656,7 +816,9 @@ describe('test/boundary', () => {
 			// assert
 			const expected = { value: 42 };
 			assert.ok(
-				Object.entries(expected).every(([key, value]) => (result as Improbability)[key] === value),
+				Object.entries(expected).every(
+					([key, value]) => (result as Improbability)[key] === value,
+				),
 				'cloned value matches original',
 			);
 
@@ -688,17 +850,24 @@ describe('test/boundary', () => {
 			// strings), isProxiable() is false for primitives — they pass through unchanged.
 			const records: Array<Rekording> = [];
 			const target = {
-				getData() { return { x: 1 }; },
+				getData() {
+					return { x: 1 };
+				},
 				process(proxied: unknown, _label: string, _count: number) {
 					return structuredClone([proxied, _label, _count]);
 				},
 			};
-			const p = create(target, { callback: (r) => records.push(r), recursive: true });
+			const p = create(target, {
+				callback: (r) => records.push(r),
+				recursive: true,
+			});
 
 			const dataProxy = (p as Improbability).getData();
 			(p as Improbability).process(dataProxy, 'hello', 42);
 
-			const structureRec = records.find((r) => r.trap === 'apply:structure');
+			const structureRec = records.find(
+				(r) => r.trap === 'apply:structure',
+			);
 			assert.ok(structureRec, 'apply:structure record emitted');
 		});
 
@@ -722,6 +891,118 @@ describe('test/boundary', () => {
 		});
 	});
 
+	describe('binary data', () => {
+		// Built-ins that read the bytes behind binary data check its internal
+		// slots, which a proxy does not have: through a proxy they threw, or
+		// silently read an empty array-like. Binary data is passed on unwrapped.
+		const make = () => ({
+			buffer: new Uint8Array([1, 2, 3, 4]).buffer,
+			bytes: new Uint8Array([1, 2, 3, 4]),
+			view: new DataView(new Uint8Array([1, 2, 3, 4]).buffer),
+		});
+		const hash = (data: Improbability) =>
+			createHash('sha1').update(data).digest('hex');
+
+		test('binary data reached through a proxy works in other built-ins as the real thing', () => {
+			each`
+				message                              | read
+				------------------------------------ | ----
+				new Uint8Array(buffer)               | ${(o: Improbability) => Array.from(new Uint8Array(o.buffer))}
+				buffer.slice()                       | ${(o: Improbability) => Array.from(new Uint8Array(o.buffer.slice(1, 3)))}
+				new DataView(buffer)                 | ${(o: Improbability) => new DataView(o.buffer).getUint8(2)}
+				new Uint8Array(view.buffer)          | ${(o: Improbability) => Array.from(new Uint8Array(o.view.buffer))}
+				TextDecoder on a buffer              | ${(o: Improbability) => new TextDecoder().decode(o.buffer)}
+				TextDecoder on a typed array         | ${(o: Improbability) => new TextDecoder().decode(o.bytes)}
+				Buffer.from(buffer)                  | ${(o: Improbability) => Array.from(Buffer.from(o.buffer))}
+				a hash of a typed array              | ${(o: Improbability) => hash(o.bytes)}
+				structuredClone(typed array)         | ${(o: Improbability) => Array.from(structuredClone(o.bytes))}
+			`(({ message, read }: Improbability) => {
+				// arrange
+				const p = create(make(), { callback: () => {} });
+
+				// act / assert
+				assert.deepStrictEqual(read(p), read(make()), message);
+			});
+		});
+
+		test('binary data is passed on unwrapped, and reading it is recorded', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(make());
+
+			// act
+			const value = proxy.bytes;
+
+			// assert
+			assert.ok(!isFlugrekorder(value), 'not a proxy');
+			assert.ok(
+				records.some(
+					(r) =>
+						r.trap === 'get' &&
+						r.origin &&
+						'key' in r.origin &&
+						r.origin.key === 'bytes',
+				),
+				'the read is recorded',
+			);
+		});
+	});
+
+	describe('WebAssembly', () => {
+		// The module in fixtures/module.ts imports `host.log`, exports `add` and
+		// its memory, and writes its second argument to memory as it adds.
+		async function load(callback: (r: Rekording) => void) {
+			const instantiate = (globalThis as Improbability).WebAssembly
+				.instantiate as Instantiate;
+			const host = create({ log: (_value: number) => {} }, { callback });
+			const { instance } = await instantiate(bytes, { host });
+
+			return create(instance.exports, { callback });
+		}
+
+		test('calls in both directions are recorded: into the module, and from it', async () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const exports = await load((r) => records.push(r));
+
+			// act
+			const sum = exports.add(2, 3);
+
+			// assert
+			// `log` returns first: the module calls it while `add` runs
+			assert.strictEqual(sum, 5);
+			assert.deepStrictEqual(
+				records
+					.filter((r) => r.trap === 'apply')
+					.map((r) => r.args[2] as Array<number>),
+				[[2], [2, 3]],
+			);
+		});
+
+		test('memory works through the proxy, and growing it is recorded', async () => {
+			// arrange
+			const records: Array<Rekording> = [];
+			const exports = await load((r) => records.push(r));
+
+			// act
+			exports.add(2, 3);
+			const written = new Uint32Array(exports.memory.buffer)[0];
+			const pages = exports.memory.grow(1);
+
+			// assert
+			assert.strictEqual(written, 3, 'reads what the module wrote');
+			assert.strictEqual(pages, 1, 'grows from one page');
+			assert.ok(
+				records.some(
+					(r) =>
+						r.trap === 'apply' &&
+						(r.args[2] as Array<number>)[0] === 1 &&
+						r.result === 1,
+				),
+				'grow(1) is recorded',
+			);
+		});
+	});
+
 	describe('proxy invariants', () => {
 		// The engine checks every trap result against the proxy's own target: a
 		// non-configurable property must be reported exactly as it is there, and
@@ -732,10 +1013,16 @@ describe('test/boundary', () => {
 		const getter = () => inner;
 		const frozen = () => Object.freeze({ inner });
 		const readonly = () =>
-			Object.defineProperty({}, 'inner', { value: inner, enumerable: true });
+			Object.defineProperty({}, 'inner', {
+				value: inner,
+				enumerable: true,
+			});
 		// The shape TypeScript and Babel emit for re-exports.
 		const reexport = () =>
-			Object.defineProperty({}, 'inner', { get: getter, enumerable: true });
+			Object.defineProperty({}, 'inner', {
+				get: getter,
+				enumerable: true,
+			});
 
 		test('operations on pinned properties do not throw', () => {
 			each`
@@ -791,7 +1078,10 @@ describe('test/boundary', () => {
 			const p = create(frozen(), { callback: () => {} });
 
 			// act
-			const described = Object.getOwnPropertyDescriptor(p, 'inner')?.value;
+			const described = Object.getOwnPropertyDescriptor(
+				p,
+				'inner',
+			)?.value;
 
 			// assert
 			assert.strictEqual(p.inner, described);
@@ -941,15 +1231,20 @@ describe('test/boundary', () => {
 			const operation = fc.oneof(
 				key.map((k) => (o: Improbability) => o[k]),
 				key.map((k) => (o: Improbability) => k in o),
-				key.map((k) => (o: Improbability) =>
-					Object.getOwnPropertyDescriptor(o, k),
+				key.map(
+					(k) => (o: Improbability) =>
+						Object.getOwnPropertyDescriptor(o, k),
 				),
 				key.map((k) => (o: Improbability) => Reflect.set(o, k, 1)),
-				key.map((k) => (o: Improbability) => Reflect.deleteProperty(o, k)),
+				key.map(
+					(k) => (o: Improbability) => Reflect.deleteProperty(o, k),
+				),
 				key.map((k) => (o: Improbability) => {
 					const descriptor = Object.getOwnPropertyDescriptor(o, k);
 
-					return descriptor && Reflect.defineProperty(o, k, descriptor);
+					return (
+						descriptor && Reflect.defineProperty(o, k, descriptor)
+					);
 				}),
 				fc.constant((o: Improbability) => Reflect.ownKeys(o)),
 				fc.constant((o: Improbability) => ({ ...o })),
@@ -958,7 +1253,8 @@ describe('test/boundary', () => {
 				fc.constant((o: Improbability) => Object.isSealed(o)),
 				fc.constant((o: Improbability) => Object.freeze(o) && 'frozen'),
 				fc.constant(
-					(o: Improbability) => Object.preventExtensions(o) && 'locked',
+					(o: Improbability) =>
+						Object.preventExtensions(o) && 'locked',
 				),
 			);
 
@@ -981,11 +1277,17 @@ describe('test/boundary', () => {
 						name,
 						spec.accessor
 							? { configurable, enumerable, get: () => value }
-							: { configurable, enumerable, value, writable: spec.writable },
+							: {
+									configurable,
+									enumerable,
+									value,
+									writable: spec.writable,
+								},
 					);
 				}
 
-				if (integrity === 'preventExtensions') Object.preventExtensions(target);
+				if (integrity === 'preventExtensions')
+					Object.preventExtensions(target);
 				if (integrity === 'seal') Object.seal(target);
 				if (integrity === 'freeze') Object.freeze(target);
 
@@ -995,7 +1297,8 @@ describe('test/boundary', () => {
 			// Proxies are compared as what they stand for, objects by kind.
 			function outcome(run: () => unknown): unknown {
 				const shape = (v: unknown): unknown =>
-					v === null || (typeof v !== 'object' && typeof v !== 'function')
+					v === null ||
+					(typeof v !== 'object' && typeof v !== 'function')
 						? v
 						: Array.isArray(v)
 							? v.map(shape)
@@ -1003,7 +1306,10 @@ describe('test/boundary', () => {
 								? 'function'
 								: Object.getPrototypeOf(v) === Object.prototype
 									? Object.fromEntries(
-											Object.entries(v).map(([k, x]) => [k, shape(x)]),
+											Object.entries(v).map(([k, x]) => [
+												k,
+												shape(x),
+											]),
 										)
 									: 'object';
 

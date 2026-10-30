@@ -8,17 +8,43 @@ export function unwrap(graph: Graph | undefined, value: unknown): unknown {
 }
 
 const isDataCloneDOMException = createErrorGuard('DataCloneError');
-const isTypeErrorPrivateMember = createErrorGuard('TypeError', /private member/i);
-const isTypeErrorIllegalInvocation = createErrorGuard('TypeError', /illegal invocation/i);
+// What engines report when `this` is a proxy rather than the instance that
+// holds a `#private` field or method:
+//   V8:             "Cannot read private member #x from an object whose class
+//                   did not declare it", "Receiver must be an instance of class X"
+//   SpiderMonkey:   "can't access private field or method: object is not the right class"
+//   JavaScriptCore: "Cannot access invalid private field", "Cannot access private method"
+const isTypeErrorPrivateMember = createErrorGuard(
+	'TypeError',
+	/private member|private field|private method|receiver must be an instance of class/i,
+);
+// What engines report when a host method (DOM, Node.js) is called on a proxy:
+//   V8:             "Illegal invocation"
+//   SpiderMonkey:   "'querySelector' called on an object that does not implement interface Document."
+//   JavaScriptCore: "Can only call Document.querySelector on instances of Document",
+//                   "The Document.body getter can only be used on instances of Document"
+const isTypeErrorIllegalInvocation = createErrorGuard(
+	'TypeError',
+	/illegal invocation|does not implement interface|can only call .+ on instances of|can only be used on instances of/i,
+);
+const isTypeError = createErrorGuard('TypeError');
+// Node.js classes written in JavaScript (URLSearchParams) check `this`
+// themselves and report it by code, which is stable where messages are not:
+//   ERR_INVALID_THIS: 'Value of "this" must be of type URLSearchParams'
+const isTypeErrorInvalidThis = (error: unknown): boolean =>
+	isTypeError(error) &&
+	(error as { code?: unknown }).code === 'ERR_INVALID_THIS';
 
 /** Retry handlers for native boundary crossings — defined once at module level. */
 export const retryFlows: Array<RetryFlow> = [
 	{
-		// Native methods (console.log, DOM APIs, http.Server) check the internal
-		// [[Receiver]] slot and throw "Illegal invocation" when called through a
-		// proxy. Unwrap the real target from the graph and retry as the receiver.
+		// Host methods (console.log, DOM APIs, http.Server, URLSearchParams) check
+		// their receiver and throw when called through a proxy. Unwrap the real
+		// target from the graph and retry as the receiver.
 		is: (trap, error) =>
-			trap === 'apply' && isTypeErrorIllegalInvocation(error),
+			trap === 'apply' &&
+			(isTypeErrorIllegalInvocation(error) ||
+				isTypeErrorInvalidThis(error)),
 		trap: 'apply:native',
 		handle: (graph, fn, thisArg, argList) => {
 			const realThis = unwrap(graph, thisArg);
@@ -57,6 +83,14 @@ export const retryFlows: Array<RetryFlow> = [
 				result: Reflect.apply(fn, realThis, argList),
 			};
 		},
+	},
+	{
+		// A host getter (URLSearchParams.prototype.size) checks its receiver the
+		// same way. Re-invoke Reflect.get with the real target as its own receiver.
+		is: (trap, error) => trap === 'get' && isTypeErrorInvalidThis(error),
+		handle: (_graph, target, propertyKey) => ({
+			result: Reflect.get(target, propertyKey, target),
+		}),
 	},
 	{
 		// A getter that reads a #private field hits the same brand check, but the

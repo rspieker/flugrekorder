@@ -6,12 +6,13 @@
  * any application code.
  *
  * Wrap the server itself rather than wrapping individual request objects.
- * One proxy on createServer()'s return value covers the entire lifetime.
- * The request handler still receives the real req and res objects; recording
- * happens at the server boundary, not inside the handler.
+ * One proxy on createServer()'s return value covers the entire lifetime:
+ * the requests and responses the server creates are proxied too, so the
+ * handler's own calls (res.writeHead, res.end) are recorded as well.
  *
- * only: ['get', 'apply'] keeps output to the two traps that tell the story:
- * which functions are looked up, and when they are called.
+ * only: ['apply'] keeps output to the trap that tells the story: which
+ * functions are called, and when. The callback prints the calls on the
+ * server itself and skips Node.js internals (names starting with `_`).
  */
 import { createServer } from 'node:http';
 import { create, format, getPath, getProxyById } from 'flugrekorder';
@@ -26,13 +27,16 @@ function makeServer() {
 
 // create the server flugrekorder
 const server = create(makeServer(), {
-	only: ['get', 'apply'],
+	only: ['apply'],
 	callback(r) {
-		// get records are captured so functions enter the graph; only apply records are printed
 		if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
 		// origin.source is the proxy ID of the object the function was read from
 		const fn = getProxyById(r.origin.source, server);
-		if (fn) console.log(format(r, server));
+		if (!fn) return;
+		// a path without a dot is a method of the server itself
+		const path = getPath(fn);
+		if (path.includes('.') || path.startsWith('_')) return;
+		console.log(format(r, server));
 	},
 });
 
@@ -45,28 +49,41 @@ console.log((await fetch('http://localhost:3000/')).status);
 // stop the server
 server.close();
 
-// Output (apply records only):
-//   emit(listening)
+// Output:
+//   on(listening, {"listener":{}})
+//   once(listening, {})
 //   listen(3000, {})
-//   emit(connection, {...})
-//   emit(request, {"url":"/","method":"GET",...}, {"statusCode":200,...})
+//   removeListener(listening, _events.listening.1)
+//   emit(listening)
+//   emit(connection, {"connecting":false,"_hadError":false,…)
+//   emit(socket, Symbol(IncomingMessage)())
+//   on(finish, ↓Symbol(ServerResponse)()._events.finish)
+//   emit(prefinish)
+//   emit(request, Symbol(IncomingMessage)(), Symbol(ServerResponse)())
+//   emit(finish)
+//   emit(end)
+//   emit(close)
+//   emit(close)
+//   200
+//   closeIdleConnections()
 //   close()
 //   emit(close)
 //
-// The get records are the wiring — they proxy emit, listen, and close into the
-// graph so their apply traps can fire. The apply records are the story.
-//
-// emit(listening) appears before listen(3000) because it fires synchronously
-// inside listen()'s Reflect.apply, before the listen record itself is emitted.
+// The request and response are created by the server (`new IncomingMessage`,
+// `new ServerResponse`), so they are proxies too: emit(request, …) passes them
+// by reference, and their paths name where they came from. Their events show
+// up as emit(finish), emit(end), …: they share EventEmitter's emit function,
+// and one function has one proxy, whose path is where it was first reached.
 //
 // Switching to stream: createWriteStream('server.ndjson') writes raw NDJSON.
-// Each apply record looks like:
+// The record of emit(request, …) looks like:
 //
-//   {"id":"#6","trap":"apply","origin":{"trap":"apply","source":"#4"},
-//    "args":[{"$unwrap":{"$proxy":"#4"}},{"$proxy":"#1"},
-//            ["request",{"url":"/","method":"GET",...},{...}]],
+//   {"id":"#98","trap":"apply","origin":{"trap":"apply","source":"#13"},
+//    "args":[{"$unwrap":{"$proxy":"#13"}},{"$proxy":"#1"},
+//            ["request",{"$proxy":"#28"},{"$proxy":"#35"}]],
 //    "result":true,"timestamp":1748091234567}
 //
-// args[1] is the server proxy (#1). args[0] is the raw emit function — known
-// to the graph as the target of proxy #4, so it serialises as $unwrap.
-// args[2][0] is the event name; the remaining elements are the event payload.
+// (The ids depend on everything recorded before.) args[1] is the server proxy
+// (#1). args[0] is the raw emit function — known to the graph as the target of
+// the emit proxy (#13), so it serialises as $unwrap.
+// args[2][0] is the event name; the request and response follow as proxies.

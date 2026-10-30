@@ -40,6 +40,8 @@ The recorder has no knowledge of what it wraps. If a dependency adds new methods
 npm install flugrekorder
 ```
 
+Upgrading from 1.x? See [MIGRATION.md](MIGRATION.md).
+
 ---
 
 ## Quick start
@@ -328,7 +330,7 @@ Without the memory limit, the same run reports `{"exit":"normalise","growth":213
 
 - **`maxRSS`, not `heapUsed`.** Garbage collection can run between the spike and the sample, so the heap may look fine afterwards. `maxRSS` is a high-water mark: its growth per call is what each call cost at its worst. `Buffer` contents count towards `external`, not the heap.
 - **`writeSync`, not `stream`.** A Writable buffers in memory, adding to the spike, and whatever is still buffered when the process dies is lost.
-- **`recursive: false`.** Proxying the payload records every element read and keeps every one of them alive in the graph. The recorder becomes the leak.
+- **`recursive: false`.** Proxying the payload records every element read and creates a proxy for each, which takes memory of its own for as long as the payload lives. The recorder becomes the spike.
 - **`depth: 0`.** The default `depth: Infinity` serializes plain-object arguments by value, so a `Buffer` argument is serialized byte by byte. Here it also stops the `apply` record from serializing `this`, which is the `enter` proxy: reading its keys would fire its `get` trap and log entries that never happened.
 
 The record names the call, not the line. Wrap the internals of the call it points at and run again, or take a heap snapshot at the limit (`node --heapsnapshot-near-heap-limit=1`) to see what filled it. The runnable version is [`examples/07-memory-spike.ts`](examples/07-memory-spike.ts).
@@ -356,11 +358,12 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON. Mutually exclusive with `callback`. |
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
-| `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
-| `filter` | `(r: Rekording) => boolean` | — | Called with each record before it is emitted; return `false` to drop it. Unlike `only`, the trap is still handled and its result still proxied — so the graph keeps growing — and the record is already serialized when `filter` sees it. |
+| `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed behave exactly the same — their results are proxied, so nested values stay visible — but produce no record: no ID, no serialization, no `location` or `stack`. `only: ['apply']` records every call into a nested API without recording the property reads that lead to it. |
+| `filter` | `(r: Rekording) => boolean` | — | Called with each record before it is emitted; return `false` to drop it. Unlike `only`, the record is already built — serialized, with `location` and `stack` — when `filter` sees it, so use `only` to leave out whole traps and `filter` to choose among records. |
 | `depth` | `number` | `Infinity` | Maximum depth for nested object serialization. Deeper values are replaced with `[…]`. |
 | `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
 | `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
+| `values` | `boolean` | `true` | When `false`, no value is recorded: every value in `args` and `result` becomes `{ $omitted: kind }` — `null`, `Array<length>`, binary data as `Uint8Array<32>`, otherwise its `typeof`. References (`$proxy`, `$unwrap`), property keys and the argument list of a call keep their shape, so `format` still shows `db.port = ‹number›`. Nothing is serialized, and the guarantee comes from the configuration, not from `depth` and `truncate` limits. |
 | `bind` | `boolean` | `undefined` | Controls how flugrekorder handles classes with `#` private fields. See [Private fields](#private-fields-bind). |
 | `location` | `boolean` | `false` | Adds `location` to `apply` and `construct` records: where the called function is defined. See [Where code lives](#where-code-lives-location-and-stack). |
 | `stack` | `boolean \| number` | `false` | Adds `stack` to every record: the call stack that made the trap fire. `true` records every frame (up to 200, Node.js's limit), a number up to that many. See [Where code lives](#where-code-lives-location-and-stack). |
@@ -403,7 +406,7 @@ getOrigin(p.a);  // { trap: 'get', parent: '#1', key: 'a' }
 
 ### `getAncestors(proxy)`
 
-Walks the origin chain from the root proxy down to `proxy` and returns every step as an ordered array of `{ proxy, origin }` pairs, root first. Returns an empty array for non-proxies.
+Walks the origin chain from the root proxy down to `proxy` and returns every step as an ordered array of `{ id, proxy, origin }`, root first. The chain is complete even when ancestors have been garbage collected; the `proxy` of such a step is then `undefined`. Returns an empty array for non-proxies.
 
 ```ts
 import { create, getAncestors } from 'flugrekorder';
@@ -412,9 +415,9 @@ const p = create({ a: { b: { c: 1 } } }, { callback: () => {} });
 
 getAncestors(p.a.b);
 // [
-//   { proxy: <root>, origin: null },
-//   { proxy: <a>,    origin: { trap: 'get', parent: '#1', key: 'a' } },
-//   { proxy: <b>,    origin: { trap: 'get', parent: '#2', key: 'b' } },
+//   { id: '#1', proxy: <root>, origin: null },
+//   { id: '#2', proxy: <a>,    origin: { trap: 'get', parent: '#1', key: 'a' } },
+//   { id: '#3', proxy: <b>,    origin: { trap: 'get', parent: '#2', key: 'b' } },
 // ]
 ```
 
@@ -489,7 +492,7 @@ getTarget({});           // null
 
 ### `getProxyById(id, proxy)`
 
-Looks up a proxy by its recorded ID within the same graph as `proxy`. Useful for resolving `{ $proxy: id }` references in recorded args and results back to live proxy objects. Returns `undefined` if the ID is not found.
+Looks up a proxy by its recorded ID within the same graph as `proxy`. Useful for resolving `{ $proxy: id }` references in recorded args and results back to live proxy objects. Returns `undefined` if the ID is not found, or its object has been garbage collected.
 
 ```ts
 import { create, getProxyById, type Rekording } from 'flugrekorder';
@@ -543,7 +546,7 @@ When an `apply` trap fires, `origin.source` is the ID of the function proxy that
 let p!: typeof myService;
 
 p = create(myService, {
-  only: ['get', 'apply'],
+  only: ['apply'],
   callback(r) {
     if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
     const fn = getProxyById(r.origin.source, p);
@@ -578,7 +581,11 @@ Note the `let p!: typeof …` pattern: the callback closes over `p` before it is
 
 Every `create()` call produces an isolated `Graph` — a session-scoped registry that maps proxies, targets, and IDs to each other. Once all references to a proxied tree are dropped, the graph is eligible for garbage collection. There are no module-level leaks between independent recordings.
 
-While a session is alive, though, it holds on to everything it has touched: the graph indexes every proxy by ID so `getProxyById` can resolve it, which keeps each proxy — and its target — reachable for as long as any proxy in the graph is. A recursive recording that walks a large data structure retains all of it. When memory is what you are investigating, wrap code boundaries with `recursive: false` rather than the data flowing through them (see [Find the call behind a memory spike](#find-the-call-behind-a-memory-spike)).
+A session doesn't keep objects alive either: a proxy and its graph entry live exactly as long as the object behind it. The index by ID holds its entries through `WeakRef`s, and a `FinalizationRegistry` removes the entries of objects that have been collected. So `getProxyById` resolves an ID for as long as its object exists — and returns `undefined` after that — and a long-running process can record without its memory growing with everything that passed through it. Runtimes without `WeakRef` or `FinalizationRegistry` keep entries strongly instead.
+
+Paths survive collection: every proxy carries its *lineage* — its ID and origin, and its parent's lineage — which holds no application objects. A certificate kept from a `parse()` result that has since been collected still has the path `parse().certificate`.
+
+Objects behind a `WeakRef` stay alive until the task that touched them has ended, so in one long synchronous run, nothing is released until it is over. Recording still costs memory while objects are alive: a proxy per object reached. When memory is what you are investigating, wrap code boundaries with `recursive: false` rather than the data flowing through them (see [Find the call behind a memory spike](#find-the-call-behind-a-memory-spike)).
 
 ### Structured origin
 
@@ -600,7 +607,7 @@ A `Proxy` is held to its target by the engine: a property that is non-configurab
 
 So a flugrekorder proxy does not wrap the real target. It wraps an empty stand-in of the same kind — an object, an array, or a function that is constructable only when the target is — and relays every trap to the real target. The engine checks results against the stand-in, which follows the real target only as far as the invariants demand: a non-configurable property is copied onto it once a trap reports it, and once the real target stops being extensible (also when it is frozen around the proxy), so does the stand-in. Copies hold the value as the proxy reported it, so the same proxy is reported by every trap from then on.
 
-For this to work, every trap has a handler, including those left out of `only`: those are relayed to the target without being recorded.
+For this to work, every trap has a handler, including those left out of `only`: those do everything a recorded trap does, except produce a record.
 
 **Known limitation** — this concerns explicit redefinition only; assignment behaves as on the target. Once the proxy has *described* a non-configurable, read-only property (`Object.getOwnPropertyDescriptor`, spread, `Object.keys` on a frozen object, …), calling `Object.defineProperty` or `Reflect.defineProperty` on the proxy with the raw value taken from the real target is refused: `Reflect.defineProperty` returns `false`, `Object.defineProperty` throws. On the real target that call can only be a no-op — a frozen property can only be redefined to what it already is. The engine holds the caller's descriptor against the stand-in's copy after the trap returns, so the trap can only choose between refusing (`false`) and the engine throwing; it refuses. Redefining with the descriptor read through the proxy works.
 
@@ -613,7 +620,7 @@ Here an application calls a dependency, `welcome`, which calls the wrapped one, 
 ```ts
 // src/app.mjs
 const greeter = create(require('greeter'), {
-  only: ['get', 'apply'],
+  only: ['apply'],
   location: true,
   stack: 3,
   callback(r) {
@@ -650,23 +657,27 @@ Browsers report call stacks as `Error.stack` strings only, so flugrekorder parse
 
 Engines with a format of their own can be taught with [`registerStackParser`](#registerstackparserparser).
 
-### `wrap` vs `wrapKnown`
+### `wrap` vs `known`
 
-Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `wrapKnown` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
+Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `known` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
 
 ### Native boundary crossings (`apply:native`, `apply:structure`, `apply:private`)
 
 Some native code rejects a `Proxy` as `this` or as an argument — V8 checks the real target at the C++ level before any JS runs. flugrekorder catches these failures, retries with the unwrapped real target, and records the crossing with a synthetic trap name so it remains visible in the rekording.
 
-**`apply:native`** — a C++ method threw `TypeError: Illegal invocation` because `this` was a Proxy. The real target is substituted for `this` and the call is retried. The unwrapped `this` appears as `{ $unwrap: { $proxy: "<id>" } }` in `args[1]`.
+**`apply:native`** — a host method (Node.js, DOM) rejected a Proxy as `this`: `Illegal invocation` in V8, `… does not implement interface …` in SpiderMonkey, `Can only call … on instances of …` in JavaScriptCore, and a `TypeError` coded `ERR_INVALID_THIS` from Node.js classes written in JavaScript, such as `URLSearchParams`. The real target is substituted for `this` and the call is retried. A getter of such a class (`URLSearchParams.prototype.size`) is retried the same way, with the real target as receiver, and stays a `get` record. The unwrapped `this` appears as `{ $unwrap: { $proxy: "<id>" } }` in `args[1]`.
 
 **`apply:structure`** — a function internally passed a proxied argument to the [Structured Clone Algorithm](https://developer.mozilla.org/en-US/docs/Web/API/Web_Workers_API/Structured_clone_algorithm) (`structuredClone`, `postMessage`, `history.pushState`, …), which threw `DataCloneError`. flugrekorder unwraps any proxy arguments in the call and retries. Unwrapped args appear as `{ $unwrap: { $proxy: "<id>" } }` in `args[2]`.
+
+**Binary data is passed on unwrapped** — `ArrayBuffer`, `SharedArrayBuffer`, typed arrays and `DataView` reached through a proxy are not proxied themselves. Other built-ins read the bytes behind them directly (`new Uint8Array(buffer)`, `TextDecoder`, `crypto`, `structuredClone`, WebAssembly), and a proxy has none: they would throw, or silently read an empty array-like. Reading binary data is recorded; what is done with the bytes is not, which native code would not show through a proxy anyway. A root `create(buffer)` is proxied as asked.
+
+**Built-ins in every engine** — objects such as `Map`, `Set`, `Date` and WebAssembly's `Memory` keep their state in internal slots a proxy cannot carry. flugrekorder recognises them by probing a native method or getter through a blank proxy: a native function that throws a `TypeError` there has failed a brand check — however the engine words it.
 
 **Remaining gap** — a *direct* `structuredClone(proxy)` call that never passes through a flugrekorder trap cannot be intercepted; V8 resolves the proxy before any JS runs. Use `structuredClone(getTarget(proxy))` at the call site as a workaround.
 
 ### Private fields (`bind`)
 
-JavaScript `#` private fields are stored on the real instance. Accessing them with `this` as a Proxy throws `TypeError: Cannot read private member … from an object whose class did not declare it` — the engine enforces the class boundary at the field level.
+JavaScript `#` private fields and methods are stored on the real instance. Accessing them with `this` as a Proxy throws a `TypeError` — `Cannot read private member …` or `Receiver must be an instance of class …` in V8, `… private field or method: object is not the right class` in SpiderMonkey, `Cannot access invalid private field` in JavaScriptCore — the engine enforces the class boundary at the field level.
 
 The `bind` option controls how flugrekorder responds:
 
@@ -736,7 +747,7 @@ Describes how a proxy was created. Every proxied value carries its `Origin` so y
 
 ```ts
 type Origin =
-  | { trap: 'get' | 'set' | 'defineProperty' | 'getOwnPropertyDescriptor'; parent: string; key: string | symbol }
+  | { trap: 'get' | 'set' | 'has' | 'deleteProperty' | 'defineProperty' | 'getOwnPropertyDescriptor'; parent: string; key: string | symbol }
   | { trap: 'apply' | 'construct'; source: string }
   | null;
 ```
@@ -807,6 +818,7 @@ Serialized recorded values can be:
 - Primitives: `string`, `number`, `boolean`, `bigint`, `null`, `undefined`
 - Proxy reference: `{ $proxy: string }` — a proxiable value known to the graph, referenced by ID
 - Raw target reference: `{ $unwrap: { $proxy: string } }` — the real target behind a proxy, recorded when a native boundary crossing required unwrapping (see [`apply:native`](#native-boundary-crossings-and-applynative))
+- Omitted value: `{ $omitted: string }` — with `values: false`, a value described without its contents: `null`, `Array<3>`, `Uint8Array<32>`, `number`, `object`, …
 - Array of `Serialized`
 - Plain object with `Serialized` values
 
@@ -815,6 +827,7 @@ type Serialized =
   | string | number | boolean | bigint | null | undefined
   | { readonly $proxy: string }
   | { readonly $unwrap: { readonly $proxy: string } }
+  | { readonly $omitted: string }
   | Array<Serialized>
   | { [key: string]: Serialized };
 ```

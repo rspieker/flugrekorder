@@ -1,6 +1,8 @@
 import assert from 'node:assert/strict';
+import { Writable } from 'node:stream';
 import { describe, test } from 'node:test';
 import fc from 'fast-check';
+import { each } from 'template-literal-each';
 import {
 	createTestProxyRecorder,
 	type Improbability,
@@ -67,21 +69,106 @@ describe('source/flugrekorder', () => {
 	});
 
 	describe('core proxy', () => {
-		test('traps with no origin mapping (e.g. has) emit a rekording with null origin', () => {
-			// arrange
-			// act
-			const { records } = createTestProxyRecorder({ x: 1 }, (p) => {
-				'x' in p;
+		describe('origin', () => {
+			// A function with a property, so every trap has something to act on.
+			const target = () => {
+				const fn = function () {} as Improbability;
+				fn.x = 1;
+
+				return fn;
+			};
+
+			const recorded = (
+				trap: string,
+				act: (p: Improbability) => void,
+			) => {
+				const { records } = createTestProxyRecorder(target(), act);
+				const rec = records.find((r) => r.trap === trap);
+				assert.ok(rec, `${trap} record emitted`);
+
+				return rec;
+			};
+
+			test('traps about a property key name the parent and the key', () => {
+				// arrange
+				// act
+				// assert
+				each<{ trap: string; act: (p: Improbability) => void }>`
+					trap                        | act
+					--------------------------- | ---
+					get                         | ${(p: Improbability) => p.x}
+					set                         | ${(p: Improbability) => Reflect.set(p, 'x', 2)}
+					has                         | ${(p: Improbability) => 'x' in p}
+					deleteProperty              | ${(p: Improbability) => delete p.x}
+					defineProperty              | ${(p: Improbability) => Object.defineProperty(p, 'x', { value: 2 })}
+					getOwnPropertyDescriptor    | ${(p: Improbability) => Object.getOwnPropertyDescriptor(p, 'x')}
+				`(({ trap, act }) => {
+					assert.deepStrictEqual(
+						recorded(trap, act).origin,
+						{ trap, parent: '#1', key: 'x' },
+						`${trap} origin`,
+					);
+				});
 			});
 
-			// assert
-			const rec = records.find((r) => r.trap === 'has');
-			assert.ok(rec, 'has record emitted');
-			assert.strictEqual(
-				rec?.origin,
-				null,
-				'origin is null for traps outside the origin mapping',
-			);
+			test('traps that invoke the target name the source', () => {
+				// arrange
+				// act
+				// assert
+				each<{ trap: string; act: (p: Improbability) => void }>`
+					trap       | act
+					---------- | ---
+					apply      | ${(p: Improbability) => p()}
+					construct  | ${(p: Improbability) => new p()}
+				`(({ trap, act }) => {
+					assert.deepStrictEqual(
+						recorded(trap, act).origin,
+						{ trap, source: '#1' },
+						`${trap} origin`,
+					);
+				});
+			});
+
+			test('other traps have no origin', () => {
+				// arrange
+				// act
+				// assert
+				each<{ trap: string; act: (p: Improbability) => void }>`
+					trap                | act
+					------------------- | ---
+					ownKeys             | ${(p: Improbability) => Reflect.ownKeys(p)}
+					getPrototypeOf      | ${(p: Improbability) => Object.getPrototypeOf(p)}
+					setPrototypeOf      | ${(p: Improbability) => Object.setPrototypeOf(p, null)}
+					isExtensible        | ${(p: Improbability) => Object.isExtensible(p)}
+					preventExtensions   | ${(p: Improbability) => Object.preventExtensions(p)}
+				`(({ trap, act }) => {
+					assert.strictEqual(
+						recorded(trap, act).origin,
+						null,
+						`${trap} origin`,
+					);
+				});
+			});
+
+			test('setting a proxy as prototype records only the setPrototypeOf', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ a: {}, b: {} },
+					{ callback: (r) => records.push(r) },
+				);
+				const { a, b } = p;
+				records.length = 0;
+
+				// act
+				Object.setPrototypeOf(a, b);
+
+				// assert
+				assert.deepStrictEqual(
+					records.map((r) => r.trap),
+					['setPrototypeOf'],
+				);
+			});
 		});
 
 		test('primitives are returned unchanged through get', () => {
@@ -531,6 +618,37 @@ describe('source/flugrekorder', () => {
 	});
 
 	describe('options', () => {
+		describe('stream or callback', () => {
+			test('a stream and a callback exclude each other', () => {
+				// arrange
+				// act
+				// assert: `npm run typecheck` fails when this call stops being an error
+				const both = () =>
+					// @ts-expect-error records go to a stream or a callback, not both
+					create({}, { stream: new Writable(), callback: () => {} });
+
+				assert.strictEqual(typeof both, 'function');
+			});
+
+			test('an undefined stream sends records to the callback', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ x: 1 },
+					{ stream: undefined, callback: (r) => records.push(r) },
+				);
+
+				// act
+				p.x;
+
+				// assert
+				assert.deepStrictEqual(
+					records.map((r) => r.trap),
+					['get'],
+				);
+			});
+		});
+
 		describe('only', () => {
 			test('restricts which traps emit records', () => {
 				// arrange
@@ -592,6 +710,75 @@ describe('source/flugrekorder', () => {
 				assert.ok(traps.has('get'), 'get recorded');
 				assert.ok(traps.has('apply'), 'apply recorded');
 				assert.strictEqual(traps.size, 2, 'no other traps recorded');
+			});
+
+			test('traps not in the list still proxy their results', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ util: { decode: (s: string) => s.length } },
+					{ callback: (r) => records.push(r), only: ['apply'] },
+				);
+
+				// act
+				const length = p.util.decode('abc');
+
+				// assert
+				assert.strictEqual(length, 3);
+				assert.ok(isFlugrekorder(p.util), 'p.util is a proxy');
+				assert.deepStrictEqual(
+					records.map((r) => r.trap),
+					['apply'],
+					'the nested call is recorded, the property reads are not',
+				);
+			});
+
+			test('traps not in the list build no record', () => {
+				// arrange
+				const filtered: Array<string> = [];
+				const p = create(
+					{ util: { decode: (s: string) => s.length } },
+					{
+						callback: () => {},
+						only: ['apply'],
+						filter: (r) => filtered.push(r.trap) > 0,
+					},
+				);
+
+				// act
+				p.util.decode('abc');
+
+				// assert
+				assert.deepStrictEqual(filtered, ['apply']);
+			});
+
+			test('native methods work whichever traps are recorded', () => {
+				// arrange
+				each<{ only: Array<string>; label: string }>`
+					only                   | label
+					---------------------- | ----------------------
+					${[]}                  | nothing recorded
+					${['get']}             | property reads only
+					${['apply']}           | calls only
+					${['get', 'apply']}    | property reads and calls
+				`(({ only, label }) => {
+					const p = create(
+						{
+							encoder: new TextEncoder(),
+							url: new URL('https://example.test/a'),
+						},
+						{ callback: () => {}, only },
+					);
+
+					// act
+					// assert
+					assert.strictEqual(p.encoder.encode('hi').length, 2, label);
+					assert.strictEqual(
+						p.url.toString(),
+						'https://example.test/a',
+						label,
+					);
+				});
 			});
 		});
 
@@ -690,6 +877,58 @@ describe('source/flugrekorder', () => {
 				const traps = records.map((r) => r.trap);
 				assert.ok(traps.includes('get'), 'get emitted');
 				assert.ok(traps.includes('set'), 'set emitted');
+			});
+		});
+
+		describe('values', () => {
+			test('values: false leaves every value out, and keeps keys and references', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ db: { port: 5432 }, find: (q: object) => [q] },
+					{
+						values: false,
+						only: ['set', 'apply'],
+						callback: (r) => records.push(r),
+					},
+				);
+
+				// act
+				p.db.port = 5433;
+				p.find({ password: 'secret' });
+
+				// assert
+				assert.deepStrictEqual(
+					records.map(({ trap, args }) => ({ trap, args })),
+					[
+						{
+							trap: 'set',
+							args: [
+								{ $unwrap: { $proxy: '#2' } },
+								'port',
+								{ $omitted: 'number' },
+								{ $proxy: '#2' },
+							],
+						},
+						{
+							trap: 'apply',
+							args: [
+								{ $unwrap: { $proxy: '#4' } },
+								{ $proxy: '#1' },
+								[{ $omitted: 'object' }],
+							],
+						},
+					],
+				);
+				assert.deepStrictEqual(records[0]?.result, {
+					$omitted: 'boolean',
+				});
+				assert.ok(
+					records[1]?.result !== null &&
+						typeof records[1]?.result === 'object' &&
+						'$proxy' in records[1].result,
+					'the array a call returns is proxied, so it is a reference',
+				);
 			});
 		});
 

@@ -25,28 +25,31 @@ export function getOrigin(pxy: Proxiable): Origin {
 
 /**
  * Walks the origin chain from the root proxy down to `pxy`.
- * Returns an ordered array of `{ proxy, origin }` pairs, root first.
+ * Returns an ordered array of `{ id, proxy, origin }` steps, root first.
+ * The chain is complete even when ancestors have been garbage collected; the
+ * `proxy` of such a step is then `undefined`.
  * Returns an empty array for non-proxies.
  */
 export function getAncestors(
 	pxy: Proxiable,
-): Array<{ proxy: Proxiable; origin: Origin }> {
+): Array<{ id: string; proxy: Proxiable | undefined; origin: Origin }> {
 	const graph = Graph.for(pxy);
+	const result: Array<{
+		id: string;
+		proxy: Proxiable | undefined;
+		origin: Origin;
+	}> = [];
 
-	if (!graph) return [];
-
-	const result: Array<{ proxy: Proxiable; origin: Origin }> = [];
-	let node = graph.getByProxy(pxy);
-
-	while (node) {
-		result.unshift({ proxy: node.proxy, origin: node.origin });
-		if (!node.origin) break;
-
-		const parentId =
-			'parent' in node.origin ? node.origin.parent : node.origin.source;
-
-		node = graph.getById(parentId);
-	}
+	for (
+		let lineage = graph?.getByProxy(pxy)?.lineage;
+		lineage;
+		lineage = lineage.parent ?? undefined
+	)
+		result.unshift({
+			id: lineage.id,
+			proxy: graph?.getById(lineage.id)?.proxy,
+			origin: lineage.origin,
+		});
 
 	return result;
 }

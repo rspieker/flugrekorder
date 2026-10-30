@@ -84,6 +84,32 @@ describe('source/format', () => {
 			assert.strictEqual(format(r, proxy), 'port = 9999');
 		});
 
+		test('other property traps → "<trap> <path>"', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(target, (p) => {
+				'port' in p;
+				delete p.port;
+				Object.defineProperty(p, 'x', { value: 1, configurable: true });
+				Object.getOwnPropertyDescriptor(p, 'x');
+			});
+
+			// act
+			// assert
+			each`
+				trap                       | expected
+				-------------------------- | ------------------------------
+				has                        | has port
+				deleteProperty             | deleteProperty port
+				defineProperty             | defineProperty x
+				getOwnPropertyDescriptor   | getOwnPropertyDescriptor x
+			`(({ trap, expected }: Improbability) => {
+				const r = records.find(
+					({ trap: t }: Improbability) => t === trap,
+				);
+				assert.strictEqual(format(r, proxy), expected, trap);
+			});
+		});
+
 		test('apply trap → "<path>(<args>)"', () => {
 			// arrange
 			const { records, proxy } = createTestProxyRecorder(target, (p) => {
@@ -195,6 +221,28 @@ describe('source/format', () => {
 	});
 
 	describe('$unwrap', () => {
+		test('$omitted value renders as its description', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(target);
+			const r: Improbability = {
+				id: '#9',
+				trap: 'set',
+				origin: { trap: 'set', parent: '#1', key: 'port' },
+				args: [
+					{ $unwrap: { $proxy: '#1' } },
+					'port',
+					{ $omitted: 'number' },
+				],
+				result: { $omitted: 'boolean' },
+				timestamp: 0,
+			};
+
+			// act
+			// assert
+			assert.strictEqual(records.length, 0);
+			assert.strictEqual(format(r, proxy), 'port = ‹number›');
+		});
+
 		test('$unwrap-tagged value renders with ↓ prefix', () => {
 			// arrange
 			// $unwrap appears when the real target (not the proxy) is captured in a
@@ -349,16 +397,16 @@ describe('source/format', () => {
 		test('fallback → "<trap> on <id>" for traps with null origin', () => {
 			// arrange
 			const { records, proxy } = createTestProxyRecorder(target, (p) => {
-				'port' in p;
+				Reflect.ownKeys(p);
 			});
 			const r: Improbability = records.find(
-				({ trap }: Improbability) => trap === 'has',
+				({ trap }: Improbability) => trap === 'ownKeys',
 			);
 
 			// act
 			// assert
 			assert.ok(
-				format(r, proxy).startsWith('has on'),
+				format(r, proxy).startsWith('ownKeys on'),
 				'fallback format for null-origin trap',
 			);
 		});

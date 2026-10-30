@@ -1,11 +1,14 @@
 name: Tests
 
+# Branches are tested through their pull request; pushing to a branch with an
+# open pull request would otherwise start every job twice. Pushes are tested
+# only where branches are merged into.
 on:
   push:
-    branches: [main, release, "fix/*", "feat/*"]
+    branches: [main, release]
     paths-ignore: ["**.md"]
   pull_request:
-    types: [opened, synchronize]
+    types: [opened, synchronize, reopened]
     paths-ignore: ["**.md"]
 
 jobs:
@@ -13,7 +16,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
-        node: [22, 24]
+        node: [22, 24, 26]
         os: [ubuntu-latest, macos-latest]
 
     steps:
@@ -30,20 +33,40 @@ jobs:
 
       - run: npm run test:coverage
 
-  browser:
+  # The version of the `playwright` devDependency, from the lockfile: the
+  # browser job runs in Playwright's image of exactly that version.
+  playwright:
     runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          sparse-checkout: package-lock.json
+          sparse-checkout-cone-mode: false
+
+      - id: version
+        run: echo "version=$(node -p "require('./package-lock.json').packages['node_modules/playwright'].version")" >> "$GITHUB_OUTPUT"
+
+  browser:
+    needs: playwright
+    runs-on: ubuntu-latest
+    # Playwright's image has the browsers and the system libraries they need,
+    # so there is nothing to install.
+    container:
+      image: mcr.microsoft.com/playwright:v${{ needs.playwright.outputs.version }}-noble
+      options: --user 1001
 
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
 
       - run: npm ci
-
-      - run: npx playwright install --with-deps chromium firefox webkit
 
       - run: npm run test:browser
 
@@ -56,7 +79,7 @@ jobs:
 
       - uses: actions/setup-node@v4
         with:
-          node-version: 22
+          node-version: 26
           cache: npm
 
       - run: npm ci
