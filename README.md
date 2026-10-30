@@ -40,6 +40,8 @@ The recorder has no knowledge of what it wraps. If a dependency adds new methods
 npm install flugrekorder
 ```
 
+Upgrading from 1.x? See [MIGRATION.md](MIGRATION.md).
+
 ---
 
 ## Quick start
