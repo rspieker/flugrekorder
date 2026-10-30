@@ -1,5 +1,32 @@
 # Changelog
 
+## [2.0.0-beta.3](https://github.com/rspieker/flugrekorder/compare/v2.0.0-beta.2...v2.0.0-beta.3) (2026-10-30)
+
+### ⚠ BREAKING CHANGES
+
+* getProxyById returns undefined for objects that have been
+  garbage collected, and getAncestors returns { id, proxy, origin } steps whose
+  proxy is undefined for collected ancestors.
+* has and deleteProperty records carry a property origin
+  { trap, parent, key } instead of null, and PropertyTrap includes both.
+* traps left out of `only` now proxy their results and retry native
+  boundaries; only the record is skipped. Use recursive: false to limit how far a proxy reaches.
+
+### Features
+
+* a session no longer keeps alive what it touched ([7076faa](https://github.com/rspieker/flugrekorder/commit/7076faa4dbabc57d5978bfe0978caf857d0ef37b))
+* has and deleteProperty records name the key ([30fa28a](https://github.com/rspieker/flugrekorder/commit/30fa28ab0112eea23dfef4895272c2cd2e91a453))
+* only selects which traps are recorded, not how they behave ([05bb80d](https://github.com/rspieker/flugrekorder/commit/05bb80d0169d990e4a62df2d31271726daa66ad1))
+* values: false records no values, only their kind ([e837bdc](https://github.com/rspieker/flugrekorder/commit/e837bdc16aebaeae0eb1a11e0258b5ba8c067fb4))
+
+### Bug Fixes
+
+* a stream and a callback can no longer be passed together ([6969367](https://github.com/rspieker/flugrekorder/commit/6969367895115d4768c88dd23d6ea6c20e3bec4f))
+* an array that contains itself no longer crashes the recorded call ([545ab3d](https://github.com/rspieker/flugrekorder/commit/545ab3dc15e0b68ddfec8e213d8b4710177f3591))
+* built-ins behave through a proxy in every engine ([bec7e15](https://github.com/rspieker/flugrekorder/commit/bec7e15ebf8d1158dfcbcb72ef65e4a9b535252b)), references [#private](https://github.com/rspieker/flugrekorder/issues/private) [#private](https://github.com/rspieker/flugrekorder/issues/private)
+* methods and getters of URLSearchParams work through a proxy ([12716f8](https://github.com/rspieker/flugrekorder/commit/12716f8427a29bc24d2f5e159a3c16ce1194b043))
+* prototype traps no longer get a property origin ([f6e7c9c](https://github.com/rspieker/flugrekorder/commit/f6e7c9c82df8f472b45fd2519cde5976c6905264))
+
 ## [2.0.0-beta.2](https://github.com/rspieker/flugrekorder/compare/v2.0.0-beta.1...v2.0.0-beta.2) (2026-10-25)
 
 ### ⚠ BREAKING CHANGES
