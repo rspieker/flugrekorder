@@ -94,7 +94,8 @@ The trap handler in `makeProxy` follows this flow for every intercepted operatio
 
 ```mermaid
 flowchart TD
-    A([trap fires on the stand-in]) --> B{spec.pre?}
+    A([trap fires on the stand-in]) --> A2["shadow.forward: arguments for the real target"]
+    A2 --> B{spec.pre?}
     B -- yes --> C[pre: transform rawArgs]
     B -- no --> D[preArgs = rawArgs]
     C --> E
@@ -102,11 +103,15 @@ flowchart TD
 
     E["Reflect[trap](...preArgs)"] --> F{error?}
     F -- no --> G{spec.post?}
-    F -- "TypeError: illegal invocation" --> H["swap thisArg → real target<br/>trap → apply:native"]
-    F -- "DOMException: DataCloneError" --> I["unwrap proxy args<br/>trap → apply:structure"]
+    F -- "apply: host method rejects the proxy" --> H["retry with the real this<br/>trap → apply:native"]
+    F -- "apply: DataCloneError" --> I["unwrap proxy args and retry<br/>trap → apply:structure"]
+    F -- "apply: #private brand check" --> H2["retry with the real this<br/>trap → apply:private"]
+    F -- "get: #private brand check" --> I2["retry with the real target as receiver<br/>trap stays get"]
     F -- other --> J([rethrow])
     H --> G
     I --> G
+    H2 --> G
+    I2 --> G
 
     G -- yes --> K[post: transform result]
     G -- no --> L[output = result]
@@ -117,9 +122,11 @@ flowchart TD
     R -- no --> Q([return output])
     R -- yes --> M["serialize → Rekording<br/>+ location, stack"]
     M --> N{filter?}
-    N -- pass --> O([config.write])
-    N -- fail --> P([drop])
+    N -- pass --> O([config.write, return output])
+    N -- fail --> P([return output])
 ```
+
+The retries recognise each engine's wording of the error; see [Brand checks in every engine](#brand-checks-in-every-engine-and-binary-data). `apply:private` and the `get` retry are skipped with `bind: false`.
 
 | Decision | Rationale |
 |---|---|
@@ -175,10 +182,11 @@ Each `create()` call produces one `Graph`, which holds three lookup indices over
 classDiagram
     direction LR
     class Graph {
-        +register(proxy, target, origin, id)
+        +register(proxy, target, origin, id) GraphNode
         +getById(id) GraphNode
         +getByProxy(proxy) GraphNode
         +getByTarget(target) GraphNode
+        +unwrap(value) unknown
         +nextId() string
     }
     class GraphNode {
@@ -186,6 +194,12 @@ classDiagram
         +proxy: Proxiable
         +target: Proxiable
         +origin: Origin
+        +lineage: Lineage
+    }
+    class Lineage {
+        +id: string
+        +origin: Origin
+        +parent: Lineage|null
     }
     class PropertyOrigin {
         +trap: PropertyTrap
@@ -196,20 +210,24 @@ classDiagram
         +trap: CallTrap
         +source: string
     }
-    Graph "1" *-- "*" GraphNode : byId · byProxy · byTarget
-    GraphNode --> PropertyOrigin : property trap (get/set/…)
+    Graph "1" *-- "*" GraphNode : byId (WeakRef) · byProxy · byTarget (WeakMap)
+    GraphNode --> Lineage
+    Lineage --> Lineage : parent
+    GraphNode --> PropertyOrigin : property trap (get/set/has/…)
     GraphNode --> CallOrigin : call trap (apply/construct)
 ```
 
 `origin` is `null` for the root node (the value passed directly to `create()`).
 
-**Graph class** — Session-scoped registries (`byId`, `byProxy`, `byTarget`) per `create()` call, making each proxied tree GC-eligible and self-contained. Earlier approaches used module-level maps, causing memory leaks under repeated use.
+**Graph class** — Session-scoped registries (`byId`, `byProxy`, `byTarget`) per `create()` call, making each proxied tree GC-eligible and self-contained. Earlier approaches used module-level maps, causing memory leaks under repeated use. `byProxy` and `byTarget` are `WeakMap`s, so a node lives as long as its target. `byId` holds `WeakRef`s, and a `FinalizationRegistry` removes the entries of collected nodes; runtimes without either keep nodes by ID strongly. `getById` — and with it `getProxyById` — returns nothing for a collected node.
+
+**Lineage** — Each node carries its ID, its origin and its parent's lineage, and nothing from the application. A proxy still in use keeps the lineage of its ancestors, so `getPath` and `getAncestors` work after the ancestors themselves are collected.
 
 **Promise special case** — Native Promise methods check for the `[[PromiseState]]` internal slot and throw if `this` is a Proxy. flugrekorder returns a new Promise that proxies the settled value instead, maintaining the stability guarantee across async boundaries.
 
 **Native internal slot detection** — ECMAScript built-ins such as `Map`, `Set`, `WeakMap`, `WeakSet`, and `Date` store state in internal slots that a Proxy cannot carry. Accessing their properties or calling their methods with `this` as a Proxy throws `TypeError`. flugrekorder probes each object's prototype chain once (cached per prototype, result discarded safely via a write-suppressing blank Proxy) to detect this boundary. For detected types, the `get` trap swaps the receiver to the real target (fixing getter-based checks like `Map.prototype.size`) and binds method results to the real target before wrapping (fixing apply-level checks like `Map.prototype.get`). A stable bind cache ensures the same bound function proxy is returned on every access, preserving the proxy stability guarantee.
 
-**`wrapKnown` vs `wrap`** — Dual-mode wrapping prevents unbounded proxy creation when plain data is passed to proxied functions. `wrap` creates new proxies freely (for results); `wrapKnown` only wraps values already in the graph (for call arguments).
+**`known` vs `wrap`** — Dual-mode wrapping prevents unbounded proxy creation when plain data is passed to proxied functions. `wrap` creates new proxies freely (for results, stored values and constructor arguments); `known` only wraps values already in the graph (for call arguments). A value created by a trap — a call's result, an instance from `construct` — is in the graph from then on, so passing it on to another function passes its proxy.
 
 **`isECMABuiltin` guard and the C++ binding crash** — The native slot detection described above identifies both ECMAScript built-ins (`Map`, `Set`, `Date`, …) and Node.js C++ bindings (`TCP`, `ConnectionsList`, `HTTPParser`, …) as slot-bearing. The two kinds behave differently at the boundary: ECMAScript built-ins perform a JavaScript-level type check before touching their internal fields, so they throw a catchable `TypeError` when called through a Proxy; C++ bindings skip the JS check entirely and call `v8::Object::GetAlignedPointerFromInternalField` directly, which fatally aborts the process if the object has no internal fields — as a Proxy does not.
 
@@ -225,4 +243,12 @@ Slot detection no longer looks at the message: a *native* function (every engine
 
 Binary data was on the allowlist too, which was right for its own methods but wrong for everything else: other built-ins read the bytes behind an `ArrayBuffer` or typed array directly and check its internal slots — `new Uint8Array(proxy)` silently became an empty array, `TextDecoder`, `crypto`, `DataView` and `structuredClone` threw. Binary data is now passed on unwrapped wherever a child proxy would be created (results, stored values, descriptors, constructor arguments, settled promises); only a root `create(buffer)` is proxied, because that was asked for.
 
-Two observable artefacts accompany the fix. `apply:native` is emitted instead of `apply` when a method call throws `"Illegal invocation"` — the `this`-as-Proxy rejection that JS-level C++ wrappers surface — and the call is retried with the real target as receiver. `{ $unwrap: { $proxy: id } }` appears in serialized args wherever a raw target (known to the graph but passed unwrapped across the native boundary) is recorded in place of its proxy.
+Two observable artefacts accompany these retries. A record's `trap` names the retry — `apply:native`, `apply:structure` or `apply:private` instead of `apply` — when a call was retried with the real target. `{ $unwrap: { $proxy: id } }` appears in serialized args wherever a raw target (known to the graph but passed unwrapped across the native boundary) is recorded in place of its proxy.
+
+## Where code lives: location and stack
+
+`location` and `stack` are captured only for traps listed in `only`, after the trap has run, as part of the record.
+
+- **`stack`** uses `util.getCallSites` in Node.js: structured call sites, no parsing, and source maps applied with `--enable-source-maps`. Browsers only offer `Error.stack` as a string, so it is parsed — the V8 format, and the one SpiderMonkey and JavaScriptCore share — and `registerStackParser` adds formats ahead of those. flugrekorder's own frames are dropped by position: bundled into an application, its code shares the application's file. A stack costs roughly 10–50µs per record, growing with the frames captured, so the frame count is a cost control as much as a filter.
+- **`location`** asks an in-process `node:inspector` session for a function's `[[FunctionLocation]]` (`Runtime.getProperties`), once per function. The script URL behind a script ID comes from `Profiler.getBestEffortCoverage`, which lists every script from data V8 keeps anyway. The `Debugger` domain would list them too, but enabling it slows the application down, and disabling it again disturbs coverage tools such as c8 — so it is never enabled. Browsers have no such API: `location` is Node.js only, and `create()` throws when an option is asked for that the runtime cannot provide.
+- **Paths are only paths**: unix notation, relative to the working directory, or a name such as `node:fs`. Which package a file belongs to is for whoever reads the records to decide.
