@@ -106,7 +106,7 @@ flowchart TD
     F -- "apply: host method rejects the proxy" --> H["retry with the real this<br/>trap → apply:native"]
     F -- "apply: DataCloneError" --> I["unwrap proxy args and retry<br/>trap → apply:structure"]
     F -- "apply: #private brand check" --> H2["retry with the real this<br/>trap → apply:private"]
-    F -- "get: #private brand check" --> I2["retry with the real target as receiver<br/>trap stays get"]
+    F -- "get: #private brand check<br/>or ERR_INVALID_THIS" --> I2["retry with the real target as receiver<br/>trap stays get"]
     F -- other --> J([rethrow])
     H --> G
     I --> G
@@ -239,7 +239,7 @@ The crash had three contributing paths. The primary one was subtle: `Reflect.set
 
 Slot detection and the `apply:native` and `apply:private` retries first recognised their errors by V8's wording: `incompatible receiver`, `Illegal invocation`, `private member`. Other engines word them differently — SpiderMonkey `called on incompatible Proxy`, JavaScriptCore `Map operation called on non-Map object`, or just `Type error` for `Date` — so in Firefox and Safari a proxied `Map`, `Set`, `Date`, typed array or class with `#private` members threw. Even V8 has a second wording: a `#private` *method* reports `Receiver must be an instance of class …`.
 
-Slot detection no longer looks at the message: a *native* function (every engine reports those as `[native code]`) that throws a `TypeError` when called through a blank proxy has failed a brand check. The two retries cannot do the same — a private-field error comes from user code — so they match each engine's wording, captured from Chromium, Firefox and WebKit. A browser test runs the same built-ins through a proxy and directly in all three engines.
+Slot detection no longer looks at the message: a *native* function (every engine reports those as `[native code]`) that throws a `TypeError` when called through a blank proxy has failed a brand check. The two retries cannot do the same — a private-field error comes from user code — so they match each engine's wording, captured from Chromium, Firefox and WebKit. Node.js classes written in JavaScript (`URLSearchParams`) check `this` themselves and throw a `TypeError` coded `ERR_INVALID_THIS`; the code is matched rather than the message, as Node.js keeps codes stable. Their methods are retried as `apply:native`, their getters as `get` with the real target as receiver. A browser test runs the same built-ins through a proxy and directly in all three engines.
 
 Binary data was on the allowlist too, which was right for its own methods but wrong for everything else: other built-ins read the bytes behind an `ArrayBuffer` or typed array directly and check its internal slots — `new Uint8Array(proxy)` silently became an empty array, `TextDecoder`, `crypto`, `DataView` and `structuredClone` threw. Binary data is now passed on unwrapped wherever a child proxy would be created (results, stored values, descriptors, constructor arguments, settled promises); only a root `create(buffer)` is proxied, because that was asked for.
 

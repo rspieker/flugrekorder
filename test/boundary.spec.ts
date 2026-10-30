@@ -520,6 +520,69 @@ describe('test/boundary', () => {
 		});
 	});
 
+	describe('Node.js classes that check `this` themselves (ERR_INVALID_THIS)', () => {
+		// URLSearchParams is written in JavaScript and rejects a receiver that is
+		// not a URLSearchParams with a TypeError coded ERR_INVALID_THIS.
+		const params = () => new URLSearchParams('a=1&b=2');
+
+		test('methods retry with the real this and are recorded as apply:native', () => {
+			// arrange
+			each<{ act: (p: Improbability) => unknown; label: string }>`
+				act                                                  | label
+				---------------------------------------------------- | --------
+				${(p: Improbability) => p.get('b')}                  | get
+				${(p: Improbability) => p.has('a')}                  | has
+				${(p: Improbability) => p.toString()}                | toString
+				${(p: Improbability) => JSON.stringify([...p])}      | spread
+			`(({ act, label }) => {
+				const { records, proxy } = createTestProxyRecorder(params());
+
+				// act
+				const result = act(proxy);
+
+				// assert
+				assert.deepStrictEqual(result, act(params()), label);
+				assert.ok(
+					records.some((r) => r.trap === 'apply:native'),
+					`${label} recorded as apply:native`,
+				);
+			});
+		});
+
+		test('getters retry with the real target as receiver and are recorded as get', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(params());
+
+			// act
+			const size = (proxy as Improbability).size;
+
+			// assert
+			assert.strictEqual(size, 2);
+			assert.deepStrictEqual(
+				records.map((r) => [r.trap, r.result]),
+				[['get', 2]],
+			);
+		});
+
+		test('a TypeError with another code is not retried', () => {
+			// arrange
+			const target = {
+				fn() {
+					throw Object.assign(new TypeError('nope'), {
+						code: 'ERR_INVALID_ARG_TYPE',
+					});
+				},
+			};
+			const p = create(target, { callback: () => {} });
+
+			// act
+			// assert
+			assert.throws(() => (p as Improbability).fn(), {
+				code: 'ERR_INVALID_ARG_TYPE',
+			});
+		});
+	});
+
 	describe('private fields (#)', () => {
 		class Counter {
 			#count = 0;
