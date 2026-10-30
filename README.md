@@ -654,9 +654,9 @@ Browsers report call stacks as `Error.stack` strings only, so flugrekorder parse
 
 Engines with a format of their own can be taught with [`registerStackParser`](#registerstackparserparser).
 
-### `wrap` vs `wrapKnown`
+### `wrap` vs `known`
 
-Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `wrapKnown` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
+Trap specs use two wrapping modes. `wrap` creates a new proxy for any proxiable value not already in the graph — used for results, where a newly returned object should be recorded. `known` only wraps values that are already in the graph — used for call arguments, where passing a plain object to a proxied function should not silently create a new proxy out of it.
 
 ### Native boundary crossings (`apply:native`, `apply:structure`, `apply:private`)
 
