@@ -221,6 +221,28 @@ describe('source/format', () => {
 	});
 
 	describe('$unwrap', () => {
+		test('$omitted value renders as its description', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(target);
+			const r: Improbability = {
+				id: '#9',
+				trap: 'set',
+				origin: { trap: 'set', parent: '#1', key: 'port' },
+				args: [
+					{ $unwrap: { $proxy: '#1' } },
+					'port',
+					{ $omitted: 'number' },
+				],
+				result: { $omitted: 'boolean' },
+				timestamp: 0,
+			};
+
+			// act
+			// assert
+			assert.strictEqual(records.length, 0);
+			assert.strictEqual(format(r, proxy), 'port = ‹number›');
+		});
+
 		test('$unwrap-tagged value renders with ↓ prefix', () => {
 			// arrange
 			// $unwrap appears when the real target (not the proxy) is captured in a

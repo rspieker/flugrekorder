@@ -1,8 +1,10 @@
 import type { Graph } from './graph.ts';
+import { isBinary } from './specs.ts';
 import {
+	isCallTrap,
+	isPropertyTrap,
 	isProxiable,
 	type Origin,
-	type Proxiable,
 	type Redactor,
 	type Serialized,
 	type SerializedOrigin,
@@ -12,13 +14,46 @@ export type SerialConfig = {
 	depth: number;
 	redactors: Array<Redactor>;
 	truncate: number;
+	values: boolean;
 };
 
 export const defaults: SerialConfig = {
 	depth: Infinity,
 	redactors: [],
 	truncate: Infinity,
+	values: true,
 };
+
+/** Describes a value without its contents: `null`, `Array<length>`, binary data as `Name<length>`, otherwise its `typeof`. */
+function kind(v: unknown): string {
+	if (v === null) return 'null';
+	if (Array.isArray(v)) return `Array<${v.length}>`;
+	if (isBinary(v)) {
+		// The tag of a built-in comes from its prototype: no application code runs.
+		const name = Object.prototype.toString.call(v).slice(8, -1);
+		const length =
+			'length' in (v as object)
+				? (v as ArrayLike<unknown>).length
+				: (v as ArrayBuffer | DataView).byteLength;
+
+		return `${name}<${length}>`;
+	}
+
+	return typeof v;
+}
+
+/** Tags a proxy by its ID, and a target known to the graph by the ID of its proxy. */
+function reference(v: unknown, graph: Graph): Serialized | undefined {
+	if (!isProxiable(v)) return undefined;
+
+	const proxyNode = graph.getByProxy(v);
+	if (proxyNode !== undefined) return { $proxy: proxyNode.id };
+
+	const targetNode = graph.getByTarget(v);
+	if (targetNode !== undefined) return { $unwrap: { $proxy: targetNode.id } };
+
+	return undefined;
+}
 
 /** Find and apply any redaction for the given key/value/target context */
 function redact(
@@ -48,11 +83,8 @@ function proxiable(
 	// Check for a known proxy BEFORE Array.isArray: iterating a proxied
 	// array via its proxy triggers get traps which call serialize again,
 	// causing infinite recursion. A proxy is always tagged by ID.
-	const proxyNode = graph.getByProxy(v as Proxiable);
-	if (proxyNode !== undefined) return { $proxy: proxyNode.id };
-
-	const targetNode = graph.getByTarget(v as Proxiable);
-	if (targetNode !== undefined) return { $unwrap: { $proxy: targetNode.id } };
+	const tag = reference(v, graph);
+	if (tag !== undefined) return tag;
 	if (depth >= serial.depth) return '[…]';
 
 	// Plain (unproxied) arrays and objects are serialized by value, with a
@@ -102,6 +134,8 @@ export function serialize(
 	serial = defaults,
 	depth = 0,
 ): Serialized {
+	// Without values, only references remain: everything else is described.
+	if (!serial.values) return reference(v, graph) ?? { $omitted: kind(v) };
 	if (v === null || v === undefined) return v;
 	if (isProxiable(v)) return proxiable(v, graph, seen, serial, depth);
 
@@ -110,6 +144,54 @@ export function serialize(
 			? `${(v as string).slice(0, serial.truncate)}…`
 			: (v as string)
 		: (v as Serialized);
+}
+
+/**
+ * Serializes the arguments of a trap. Without values, the record keeps its
+ * structure: the key of a property trap, and the argument list of a call —
+ * one entry per argument.
+ */
+export function args(
+	trap: string,
+	list: Array<unknown>,
+	graph: Graph,
+	serial: SerialConfig,
+): Array<Serialized> {
+	const value = (v: unknown) => serialize(v, graph, new Set(), serial);
+
+	if (serial.values) return list.map(value);
+
+	const callArgs = isCallTrap(trap)
+		? trap.startsWith('construct')
+			? 1
+			: 2
+		: -1;
+
+	return list.map((arg, index) => {
+		if (index === 1 && isPropertyTrap(trap))
+			return serialize(arg, graph, new Set(), {
+				...serial,
+				values: true,
+			});
+		if (index === callArgs && Array.isArray(arg)) return arg.map(value);
+
+		return value(arg);
+	});
+}
+
+/** Serializes the result of a trap. Without values, the keys `ownKeys` lists are kept: keys are structure, not values. */
+export function result(
+	trap: string,
+	output: unknown,
+	graph: Graph,
+	serial: SerialConfig,
+): Serialized {
+	return serialize(
+		output,
+		graph,
+		new Set(),
+		trap === 'ownKeys' ? { ...serial, values: true } : serial,
+	);
 }
 
 /** Converts an Origin to its serialized form — coerces symbol keys to strings. */
