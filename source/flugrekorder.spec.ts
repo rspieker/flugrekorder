@@ -711,6 +711,75 @@ describe('source/flugrekorder', () => {
 				assert.ok(traps.has('apply'), 'apply recorded');
 				assert.strictEqual(traps.size, 2, 'no other traps recorded');
 			});
+
+			test('traps not in the list still proxy their results', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ util: { decode: (s: string) => s.length } },
+					{ callback: (r) => records.push(r), only: ['apply'] },
+				);
+
+				// act
+				const length = p.util.decode('abc');
+
+				// assert
+				assert.strictEqual(length, 3);
+				assert.ok(isFlugrekorder(p.util), 'p.util is a proxy');
+				assert.deepStrictEqual(
+					records.map((r) => r.trap),
+					['apply'],
+					'the nested call is recorded, the property reads are not',
+				);
+			});
+
+			test('traps not in the list build no record', () => {
+				// arrange
+				const filtered: Array<string> = [];
+				const p = create(
+					{ util: { decode: (s: string) => s.length } },
+					{
+						callback: () => {},
+						only: ['apply'],
+						filter: (r) => filtered.push(r.trap) > 0,
+					},
+				);
+
+				// act
+				p.util.decode('abc');
+
+				// assert
+				assert.deepStrictEqual(filtered, ['apply']);
+			});
+
+			test('native methods work whichever traps are recorded', () => {
+				// arrange
+				each<{ only: Array<string>; label: string }>`
+					only                   | label
+					---------------------- | ----------------------
+					${[]}                  | nothing recorded
+					${['get']}             | property reads only
+					${['apply']}           | calls only
+					${['get', 'apply']}    | property reads and calls
+				`(({ only, label }) => {
+					const p = create(
+						{
+							encoder: new TextEncoder(),
+							url: new URL('https://example.test/a'),
+						},
+						{ callback: () => {}, only },
+					);
+
+					// act
+					// assert
+					assert.strictEqual(p.encoder.encode('hi').length, 2, label);
+					assert.strictEqual(
+						p.url.toString(),
+						'https://example.test/a',
+						label,
+					);
+				});
+			});
 		});
 
 		describe('filter', () => {
