@@ -50,7 +50,7 @@ export type SerializedOrigin =
 	| { trap: CallTrap; source: string }
 	| null;
 
-/** A JSON-safe representation of any value. Proxiable values are replaced with `{ $proxy: id }` tags. Raw targets (proxiable values known to the graph but passed unwrapped) are tagged `{ $unwrap: { $proxy: id } }`. */
+/** A JSON-safe representation of any value. Proxiable values are replaced with `{ $proxy: id }` tags. Raw targets (proxiable values known to the graph but passed unwrapped) are tagged `{ $unwrap: { $proxy: id } }`. With `values: false`, every other value is `{ $omitted: kind }`. */
 export type Serialized =
 	| string
 	| number
@@ -60,6 +60,7 @@ export type Serialized =
 	| undefined
 	| { readonly $proxy: string }
 	| { readonly $unwrap: { readonly $proxy: string } }
+	| { readonly $omitted: string }
 	| Array<Serialized>
 	| { [key: string]: Serialized };
 

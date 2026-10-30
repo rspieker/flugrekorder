@@ -361,6 +361,7 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `depth` | `number` | `Infinity` | Maximum depth for nested object serialization. Deeper values are replaced with `[…]`. |
 | `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
 | `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
+| `values` | `boolean` | `true` | When `false`, no value is recorded: every value in `args` and `result` becomes `{ $omitted: kind }` — `null`, `Array<length>`, binary data as `Uint8Array<32>`, otherwise its `typeof`. References (`$proxy`, `$unwrap`), property keys and the argument list of a call keep their shape, so `format` still shows `db.port = ‹number›`. Nothing is serialized, and the guarantee comes from the configuration, not from `depth` and `truncate` limits. |
 | `bind` | `boolean` | `undefined` | Controls how flugrekorder handles classes with `#` private fields. See [Private fields](#private-fields-bind). |
 | `location` | `boolean` | `false` | Adds `location` to `apply` and `construct` records: where the called function is defined. See [Where code lives](#where-code-lives-location-and-stack). |
 | `stack` | `boolean \| number` | `false` | Adds `stack` to every record: the call stack that made the trap fire. `true` records every frame (up to 200, Node.js's limit), a number up to that many. See [Where code lives](#where-code-lives-location-and-stack). |
@@ -815,6 +816,7 @@ Serialized recorded values can be:
 - Primitives: `string`, `number`, `boolean`, `bigint`, `null`, `undefined`
 - Proxy reference: `{ $proxy: string }` — a proxiable value known to the graph, referenced by ID
 - Raw target reference: `{ $unwrap: { $proxy: string } }` — the real target behind a proxy, recorded when a native boundary crossing required unwrapping (see [`apply:native`](#native-boundary-crossings-and-applynative))
+- Omitted value: `{ $omitted: string }` — with `values: false`, a value described without its contents: `null`, `Array<3>`, `Uint8Array<32>`, `number`, `object`, …
 - Array of `Serialized`
 - Plain object with `Serialized` values
 
@@ -823,6 +825,7 @@ type Serialized =
   | string | number | boolean | bigint | null | undefined
   | { readonly $proxy: string }
   | { readonly $unwrap: { readonly $proxy: string } }
+  | { readonly $omitted: string }
   | Array<Serialized>
   | { [key: string]: Serialized };
 ```

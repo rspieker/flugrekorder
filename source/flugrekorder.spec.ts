@@ -880,6 +880,58 @@ describe('source/flugrekorder', () => {
 			});
 		});
 
+		describe('values', () => {
+			test('values: false leaves every value out, and keeps keys and references', () => {
+				// arrange
+				const records: Array<Rekording> = [];
+				const p = create(
+					{ db: { port: 5432 }, find: (q: object) => [q] },
+					{
+						values: false,
+						only: ['set', 'apply'],
+						callback: (r) => records.push(r),
+					},
+				);
+
+				// act
+				p.db.port = 5433;
+				p.find({ password: 'secret' });
+
+				// assert
+				assert.deepStrictEqual(
+					records.map(({ trap, args }) => ({ trap, args })),
+					[
+						{
+							trap: 'set',
+							args: [
+								{ $unwrap: { $proxy: '#2' } },
+								'port',
+								{ $omitted: 'number' },
+								{ $proxy: '#2' },
+							],
+						},
+						{
+							trap: 'apply',
+							args: [
+								{ $unwrap: { $proxy: '#4' } },
+								{ $proxy: '#1' },
+								[{ $omitted: 'object' }],
+							],
+						},
+					],
+				);
+				assert.deepStrictEqual(records[0]?.result, {
+					$omitted: 'boolean',
+				});
+				assert.ok(
+					records[1]?.result !== null &&
+						typeof records[1]?.result === 'object' &&
+						'$proxy' in records[1].result,
+					'the array a call returns is proxied, so it is a reference',
+				);
+			});
+		});
+
 		describe('redact', () => {
 			test('single redactor function is normalised to an array internally', () => {
 				// arrange

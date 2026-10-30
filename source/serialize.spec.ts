@@ -1,8 +1,10 @@
 import assert from 'node:assert/strict';
 import { describe, test } from 'node:test';
+import { each } from 'template-literal-each';
+import type { Improbability } from '../test/test-helpers.ts';
 import { Graph } from './graph.ts';
 import type { SerialConfig } from './serialize.ts';
-import { defaults, serialize } from './serialize.ts';
+import { args, defaults, result, serialize } from './serialize.ts';
 
 function cfg(overrides: Partial<SerialConfig>): SerialConfig {
 	return { ...defaults, ...overrides };
@@ -245,6 +247,160 @@ describe('source/serialize', () => {
 
 			// assert
 			assert.deepStrictEqual(result, { a: [1, 2], b: [[1, 2]] });
+		});
+	});
+
+	describe('values: false', () => {
+		const omit = cfg({ values: false });
+
+		test('a value is described by its typeof', () => {
+			// arrange
+			each<{ value: Improbability; label: string }>`
+				value                | label
+				-------------------- | ---------
+				${undefined}         | undefined
+				${'secret'}          | string
+				${5432}              | number
+				${true}              | boolean
+				${42n}               | bigint
+				${Symbol('s')}       | symbol
+				${{ password: 'x' }} | object
+				${() => 'x'}         | function
+			`(({ value, label }) => {
+				// act
+				// assert
+				assert.deepStrictEqual(
+					serialize(value, new Graph(0), new Set(), omit),
+					{ $omitted: typeof value },
+					label,
+				);
+			});
+		});
+
+		test('null is described as null', () => {
+			// arrange
+			// act
+			// assert
+			assert.deepStrictEqual(
+				serialize(null, new Graph(0), new Set(), omit),
+				{ $omitted: 'null' },
+			);
+		});
+
+		test('an array is described by its length', () => {
+			// arrange
+			each<{ value: Array<unknown>; label: string }>`
+				value                 | label
+				--------------------- | ------------------------
+				${[]}                 | empty
+				${[1, 'two', {}]}     | mixed — elements are not read
+			`(({ value, label }) => {
+				// act
+				// assert
+				assert.deepStrictEqual(
+					serialize(value, new Graph(0), new Set(), omit),
+					{ $omitted: `Array<${value.length}>` },
+					label,
+				);
+			});
+		});
+
+		test('binary data is described by its type and length', () => {
+			// arrange
+			each<{ value: Improbability; description: string }>`
+				value                                | description
+				------------------------------------ | -------------------
+				${new Uint8Array(32)}                | Uint8Array<32>
+				${new Float64Array(4)}               | Float64Array<4>
+				${new ArrayBuffer(16)}               | ArrayBuffer<16>
+				${new DataView(new ArrayBuffer(8))}  | DataView<8>
+			`(({ value, description }) => {
+				// act
+				// assert
+				assert.deepStrictEqual(
+					serialize(value, new Graph(0), new Set(), omit),
+					{ $omitted: description },
+					description,
+				);
+			});
+		});
+
+		test('references remain: a proxy by its ID, a known target by the ID of its proxy', () => {
+			// arrange
+			const graph = new Graph(0);
+			const target = { secret: 'x' };
+			const proxy = new Proxy(target, {});
+			graph.register(proxy, target, null, graph.nextId());
+
+			// act
+			// assert
+			assert.deepStrictEqual(serialize(proxy, graph, new Set(), omit), {
+				$proxy: '#1',
+			});
+			assert.deepStrictEqual(serialize(target, graph, new Set(), omit), {
+				$unwrap: { $proxy: '#1' },
+			});
+		});
+
+		test('the key of a property trap remains', () => {
+			// arrange
+			const target = {};
+
+			// act
+			// assert
+			assert.deepStrictEqual(
+				args('set', [target, 'port', 5433, target], new Graph(0), omit),
+				[
+					{ $omitted: 'object' },
+					'port',
+					{ $omitted: 'number' },
+					{ $omitted: 'object' },
+				],
+			);
+		});
+
+		test('a call keeps one entry per argument', () => {
+			// arrange
+			const fn = () => {};
+
+			// act
+			// assert
+			each<{ trap: string; list: Array<unknown> }>`
+				trap              | list
+				----------------- | --------------------------------------
+				apply             | ${[fn, null, [{ active: true }, 2]]}
+				apply:native      | ${[fn, null, [{ active: true }, 2]]}
+				construct         | ${[fn, [{ active: true }, 2], fn]}
+			`(({ trap, list }) => {
+				const listed = args(trap, list, new Graph(0), omit);
+				const index = trap === 'construct' ? 1 : 2;
+
+				assert.deepStrictEqual(
+					listed[index],
+					[{ $omitted: 'object' }, { $omitted: 'number' }],
+					trap,
+				);
+			});
+		});
+
+		test('the keys ownKeys lists remain', () => {
+			// arrange
+			// act
+			// assert
+			assert.deepStrictEqual(
+				result('ownKeys', ['port', 'host'], new Graph(0), omit),
+				['port', 'host'],
+			);
+		});
+
+		test('values are serialized as before by default', () => {
+			// arrange
+			// act
+			// assert
+			assert.deepStrictEqual(
+				args('set', [{}, 'port', 5433], new Graph(0), defaults),
+				[{}, 'port', 5433],
+			);
 		});
 	});
 });

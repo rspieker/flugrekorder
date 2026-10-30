@@ -3,7 +3,11 @@ import type { GraphNode } from './graph.ts';
 import { Graph } from './graph.ts';
 import { retryFlows } from './retry.ts';
 import type { SerialConfig } from './serialize.ts';
-import { serialize, origin as serializeOrigin } from './serialize.ts';
+import {
+	args as serializeArgs,
+	origin as serializeOrigin,
+	result as serializeResult,
+} from './serialize.ts';
 import { Shadow } from './shadow.ts';
 import type { Spec, Wrapper } from './specs.ts';
 import { isBinary, makeSpecs } from './specs.ts';
@@ -62,6 +66,7 @@ type CommonCreateOptions = {
 	depth?: number;
 	redact?: Redactor | Array<Redactor>;
 	truncate?: number;
+	values?: boolean;
 	bind?: boolean;
 	location?: boolean;
 	stack?: boolean | number;
@@ -234,10 +239,13 @@ function makeProxy<T extends Proxiable>(
 				id: graph.nextId(),
 				trap: effectiveTrap,
 				origin: serializeOrigin(childOrigin),
-				args: effectiveArgs.map((arg) =>
-					serialize(arg, graph, new Set(), config.serial),
+				args: serializeArgs(
+					effectiveTrap,
+					effectiveArgs,
+					graph,
+					config.serial,
 				),
-				result: serialize(output, graph, new Set(), config.serial),
+				result: serializeResult(trap, output, graph, config.serial),
 				timestamp: Date.now(),
 			};
 
@@ -284,6 +292,7 @@ export function create<T extends Proxiable>(
 		depth: options.depth ?? Infinity,
 		redactors: redact ? (Array.isArray(redact) ? redact : [redact]) : [],
 		truncate: options.truncate ?? Infinity,
+		values: options.values !== false,
 	};
 	const location = options.location === true;
 	// `true` records every frame there is; a number records up to that many.
