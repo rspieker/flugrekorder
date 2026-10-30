@@ -125,16 +125,11 @@ function makeProxy<T extends Proxiable>(
 			return makeProxy(v as Proxiable, graph, config, origin());
 		};
 
-	const listed = (trap: string): boolean =>
-		config.only === null || config.only.has(trap);
-
 	// The descriptor the proxy reports for an own key of the target — the
 	// form the stand-in holds once the invariants pin that key.
 	const describe = (key: PropertyKey): PropertyDescriptor | undefined => {
 		const descriptor = Reflect.getOwnPropertyDescriptor(target, key);
-		const post = listed('getOwnPropertyDescriptor')
-			? config.specs.getOwnPropertyDescriptor?.post
-			: undefined;
+		const post = config.specs.getOwnPropertyDescriptor?.post;
 
 		if (!descriptor || !post) return descriptor;
 
@@ -149,44 +144,20 @@ function makeProxy<T extends Proxiable>(
 
 	const shadow = new Shadow(target, describe, (v) => graph.unwrap(v));
 
-	// Every trap is installed, listed in `only` or not: without a handler the
-	// engine would act on the stand-in rather than on the target.
+	// Every trap is installed: without a handler the engine would act on the
+	// stand-in rather than on the target.
 	const traps = Object.getOwnPropertyNames(Reflect) as Array<
 		keyof typeof Reflect
 	>;
 
-	// Traps not listed in `only` are relayed to the target unrecorded. The
-	// engine calls each trap with its full argument list, so relaying three
-	// arguments is the same as spreading them, without allocating.
-	const relay = (trap: keyof typeof Reflect) => {
-		const reflect = Reflect[trap] as (...args: Array<unknown>) => unknown;
+	// Every trap behaves the same, listed in `only` or not: its result is
+	// proxied and native boundaries are retried. `only` decides which traps
+	// produce a record — the others skip the id, serialization, location and
+	// stack.
+	const intercept = (trap: keyof typeof Reflect) => {
+		const recorded = config.only === null || config.only.has(trap);
 
-		return trap === 'defineProperty'
-			? (
-					_shadow: Proxiable,
-					key: PropertyKey,
-					descriptor: PropertyDescriptor,
-				) =>
-					shadow.report(
-						trap,
-						key,
-						reflect(
-							...shadow.forward(trap, [target, key, descriptor]),
-						),
-						descriptor,
-					)
-			: (_shadow: Proxiable, a: unknown, b: unknown, c: unknown) =>
-					shadow.report(
-						trap,
-						a as PropertyKey,
-						reflect(target, a, b, c),
-					);
-	};
-
-	// Traps listed in `only` (all by default) are recorded.
-	const record =
-		(trap: keyof typeof Reflect) =>
-		(_shadow: Proxiable, ...args: Array<unknown>) => {
+		return (_shadow: Proxiable, ...args: Array<unknown>) => {
 			// The engine checks the result against the caller's own arguments.
 			const caller = [target, ...args];
 			const rawArgs = shadow.forward(trap, caller);
@@ -257,6 +228,8 @@ function makeProxy<T extends Proxiable>(
 				caller[2] as PropertyDescriptor,
 			);
 
+			if (!recorded) return output;
+
 			const rekording: Rekording = {
 				id: graph.nextId(),
 				trap: effectiveTrap,
@@ -277,9 +250,10 @@ function makeProxy<T extends Proxiable>(
 
 			return output;
 		};
+	};
 
 	const handler: ProxyHandler<Proxiable> = Object.fromEntries(
-		traps.map((trap) => [trap, listed(trap) ? record(trap) : relay(trap)]),
+		traps.map((trap) => [trap, intercept(trap)]),
 	);
 
 	const pxy = new Proxy(shadow.object, handler) as unknown as T;

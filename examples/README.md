@@ -24,7 +24,7 @@ let spy!: typeof db;
 const calls: Array<{ method: string; args: Array<unknown> }> = [];
 
 spy = create(db, {
-  only: ['get', 'apply'],
+  only: ['apply'],
   callback(r) {
     if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
     const fn = getProxyById(r.origin.source, spy);
@@ -33,7 +33,7 @@ spy = create(db, {
 });
 ```
 
-`only: ['get', 'apply']` keeps the recording to what matters — property lookups that produce methods, and the calls themselves. `getPath` resolves the function proxy back to a readable name like `'execute'`.
+`only: ['apply']` keeps the recording to the calls themselves; the property lookups that produce the methods are still proxied, just not recorded. `getPath` resolves the function proxy back to a readable name like `'execute'`.
 
 **Output:**
 ```
@@ -55,6 +55,7 @@ All assertions passed.
 
 ```ts
 tracked = create(config, {
+  only: ['set'],
   callback(r) {
     if (r.trap !== 'set' || !r.origin || !('parent' in r.origin)) return;
     const parent = getProxyById(r.origin.parent, tracked);
@@ -65,7 +66,7 @@ tracked = create(config, {
 });
 ```
 
-No `only` filter here — you want the full picture, including nested gets that create the proxy chain used to resolve paths.
+`only: ['set']` records nothing but assignments. The nested objects are still proxied when they are read, so a mutation at any depth is recorded and its path resolves.
 
 **Output:**
 ```
@@ -115,7 +116,7 @@ Fields in "never touched" can be removed without consequence — or, if the new 
 
 ```ts
 const client = create(https, {
-  only: ['get', 'apply'],
+  only: ['apply'],
   callback(r) {
     if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
     const fn = getProxyById(r.origin.source, client);
@@ -145,32 +146,47 @@ HTTP 200 — 7085 bytes
 
 **The problem:** you want to see what a Node.js HTTP server does across its entire lifetime — which methods fire, in what order, with what arguments — without touching any application code.
 
-**The trick:** wrap the server itself instead of wrapping individual request objects. One proxy on `createServer()`'s return value covers the whole lifetime. `only: ['get', 'apply']` keeps the output to the two traps that matter: which functions are looked up (the wiring), and when they are called (the story). The request handler still receives the real `req` and `res` objects.
+**The trick:** wrap the server itself instead of wrapping individual request objects. One proxy on `createServer()`'s return value covers the whole lifetime. `only: ['apply']` keeps the output to the trap that tells the story: which functions are called, and when. The requests and responses the server creates are proxied too, so the handler's own calls are recorded as well; the callback prints only the calls on the server itself and skips Node.js internals (names starting with `_`).
 
 ```ts
 let server!: ReturnType<typeof createServer>;
 
 server = create(makeServer(), {
-  only: ['get', 'apply'],
+  only: ['apply'],
   callback(r) {
     if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
     const fn = getProxyById(r.origin.source, server);
-    if (fn) console.log(format(r, server));
+    if (!fn) return;
+    const path = getPath(fn);
+    if (path.includes('.') || path.startsWith('_')) return;
+    console.log(format(r, server));
   },
 });
 ```
 
 **Output:**
 ```
-emit(listening)
+on(listening, {"listener":{}})
+once(listening, {})
 listen(3000, {})
-emit(connection, {...})
-emit(request, {"url":"/","method":"GET",...}, {"statusCode":200,...})
+removeListener(listening, _events.listening.1)
+emit(listening)
+emit(connection, {"connecting":false,"_hadError":false,…)
+emit(socket, Symbol(IncomingMessage)())
+on(finish, ↓Symbol(ServerResponse)()._events.finish)
+emit(prefinish)
+emit(request, Symbol(IncomingMessage)(), Symbol(ServerResponse)())
+emit(finish)
+emit(end)
+emit(close)
+emit(close)
+200
+closeIdleConnections()
 close()
 emit(close)
 ```
 
-`emit(listening)` appears before `listen(3000)` because it fires synchronously inside `listen()`'s execution, before the outer `listen` record is emitted. Swap `callback` for `stream` to write raw NDJSON to disk; each apply record carries `args[1]` as the server proxy and `args[2]` as the event payload.
+The request and response are passed to `emit(request, …)` by reference, as proxies. Their own events show up as `emit(finish)`, `emit(end)`, …: they share `EventEmitter`'s `emit`, and one function has one proxy, named after where it was first reached. Swap `callback` for `stream` to write raw NDJSON to disk; each apply record carries `args[1]` as the server proxy and `args[2]` as the event payload.
 
 ---
 

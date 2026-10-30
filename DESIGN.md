@@ -113,7 +113,9 @@ flowchart TD
     K --> L
 
     L --> S["shadow.report: sync stand-in"]
-    S --> M["serialize → Rekording"]
+    S --> R{"trap in only?"}
+    R -- no --> Q([return output])
+    R -- yes --> M["serialize → Rekording<br/>+ location, stack"]
     M --> N{filter?}
     N -- pass --> O([config.write])
     N -- fail --> P([drop])
@@ -125,7 +127,7 @@ flowchart TD
 | `{ $proxy: id }` serialization tags | JSON-safe, no circular reference risk, resolvable via `getProxyById` |
 | Stream or callback output | Both covered: streaming for persistence, callback for in-process inspection |
 | Origin extraction via spec pre/post hooks | Keeps trap handler generic; per-trap concerns stay in one place |
-| `only` filter | Covers real use cases with minimal API surface (replaces 3-mode system) |
+| `only` selects records, not behaviour | Every trap behaves the same — results proxied, native boundaries retried — and `only` decides which traps produce a record. Until 2.0.0, traps left out of `only` were relayed raw: their results were not proxied, so `only: ['apply']` saw no nested calls, leaving out `construct` handed out raw instances, and native methods threw without the retries. Choosing what to record changed what the application saw. A trap left out now skips only the record's cost: ID, serialization, location and stack. Limiting how far the recorder reaches is `recursive: false`; a per-trap `follow` waits for a real need |
 | Proxy stability guarantee | Same object → same proxy, regardless of how many times it is accessed |
 | Native slot detection + bind cache | Allows `Map`, `Set`, `WeakMap`, `WeakSet`, `Date` to be proxied and recorded; probe runs once per prototype, bind cache maintains stability for method results |
 | No double-wrapping guard | Prevents infinite loops when proxied values are passed back into proxied functions |
@@ -140,7 +142,7 @@ flowchart TD
 | Numeric IDs | Switched to `#`-prefixed strings — human-readable and JSON-safe |
 | Direct object storage in logs | Full serialization required for streaming, logging, and replay |
 | `Symbol.species` child-sink | Unnecessary complexity; WeakMap per-proxy metadata is more reliable |
-| Three observation modes | Single `only` allowlist covers real use cases with less API surface |
+| Three observation modes | A single `only` allowlist covers the real use cases with less API surface |
 | Origin as `string \| symbol` | Full Origin struct needed to distinguish trap types during replay |
 | Unserializable records | Non-starter for the stream output use case |
 
@@ -159,7 +161,7 @@ A first fix passed pinned values through unwrapped. That kept the application sa
 - `getOwnPropertyDescriptor` and `defineProperty` copy a non-configurable property onto it, holding the value as the proxy reports it; from then on, every trap reports that copy.
 - `ownKeys`, `isExtensible`, `preventExtensions`, `getPrototypeOf` and `setPrototypeOf` lock the stand-in once the real target is no longer extensible, including when it was frozen around the proxy.
 - Stand-ins for callables are strict-mode functions (sloppy ones carry non-configurable `arguments` and `caller`), and constructable only when the target has its own `prototype`.
-- Every trap is installed, also those left out of `only`: without a handler the engine would act on the stand-in.
+- Every trap is installed, also those left out of `only`: without a handler the engine would act on the stand-in. Those traps do everything a recorded trap does, except produce a record.
 
 A property-based test builds targets of any integrity level and property shape and compares flugrekorder against a transparent `new Proxy(target, {})`. The reference is a proxy rather than the target, because engines take shortcuts no handler can reproduce: V8 reports an empty non-extensible array as frozen, while its `length` is writable.
 

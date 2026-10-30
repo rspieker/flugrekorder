@@ -24,6 +24,7 @@ let tracked!: typeof config;
 const mutations: Array<string> = [];
 
 tracked = create(config, {
+	only: ["set"],
 	callback(r) {
 		if (r.trap !== "set" || !r.origin || !("parent" in r.origin)) return;
 		// origin.parent is the proxy ID of the object being mutated — resolve it to get the path prefix

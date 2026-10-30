@@ -34,8 +34,7 @@ let spy!: typeof db;
 const calls: Array<{ method: string; args: Array<unknown> }> = [];
 
 spy = create(db, {
-	// get wraps property lookups into proxies so apply can fire on method calls
-	only: ["get", "apply"],
+	only: ["apply"],
 	callback(r) {
 		if (r.trap !== "apply" || !r.origin || !("source" in r.origin)) return;
 		// origin.source is the proxy ID of the object the function was read from

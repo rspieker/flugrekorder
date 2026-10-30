@@ -356,8 +356,8 @@ const p = create(target, { callback: (r) => records.push(r) });
 | `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON. Mutually exclusive with `callback`. |
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
-| `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed pass straight through to `Reflect` without emitting a record. |
-| `filter` | `(r: Rekording) => boolean` | — | Called with each record before it is emitted; return `false` to drop it. Unlike `only`, the trap is still handled and its result still proxied — so the graph keeps growing — and the record is already serialized when `filter` sees it. |
+| `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed behave exactly the same — their results are proxied, so nested values stay visible — but produce no record: no ID, no serialization, no `location` or `stack`. `only: ['apply']` records every call into a nested API without recording the property reads that lead to it. |
+| `filter` | `(r: Rekording) => boolean` | — | Called with each record before it is emitted; return `false` to drop it. Unlike `only`, the record is already built — serialized, with `location` and `stack` — when `filter` sees it, so use `only` to leave out whole traps and `filter` to choose among records. |
 | `depth` | `number` | `Infinity` | Maximum depth for nested object serialization. Deeper values are replaced with `[…]`. |
 | `redact` | `Redactor \| Array<Redactor>` | — | Function(s) to redact sensitive values. Return `true` to replace with `"[redacted]"`, `false` to keep as-is, or a string for custom replacement. |
 | `truncate` | `number` | `Infinity` | Maximum string length before truncation. Longer strings are truncated with `…`. |
@@ -543,7 +543,7 @@ When an `apply` trap fires, `origin.source` is the ID of the function proxy that
 let p!: typeof myService;
 
 p = create(myService, {
-  only: ['get', 'apply'],
+  only: ['apply'],
   callback(r) {
     if (r.trap !== 'apply' || !r.origin || !('source' in r.origin)) return;
     const fn = getProxyById(r.origin.source, p);
@@ -604,7 +604,7 @@ A `Proxy` is held to its target by the engine: a property that is non-configurab
 
 So a flugrekorder proxy does not wrap the real target. It wraps an empty stand-in of the same kind — an object, an array, or a function that is constructable only when the target is — and relays every trap to the real target. The engine checks results against the stand-in, which follows the real target only as far as the invariants demand: a non-configurable property is copied onto it once a trap reports it, and once the real target stops being extensible (also when it is frozen around the proxy), so does the stand-in. Copies hold the value as the proxy reported it, so the same proxy is reported by every trap from then on.
 
-For this to work, every trap has a handler, including those left out of `only`: those are relayed to the target without being recorded.
+For this to work, every trap has a handler, including those left out of `only`: those do everything a recorded trap does, except produce a record.
 
 **Known limitation** — this concerns explicit redefinition only; assignment behaves as on the target. Once the proxy has *described* a non-configurable, read-only property (`Object.getOwnPropertyDescriptor`, spread, `Object.keys` on a frozen object, …), calling `Object.defineProperty` or `Reflect.defineProperty` on the proxy with the raw value taken from the real target is refused: `Reflect.defineProperty` returns `false`, `Object.defineProperty` throws. On the real target that call can only be a no-op — a frozen property can only be redefined to what it already is. The engine holds the caller's descriptor against the stand-in's copy after the trap returns, so the trap can only choose between refusing (`false`) and the engine throwing; it refuses. Redefining with the descriptor read through the proxy works.
 
@@ -617,7 +617,7 @@ Here an application calls a dependency, `welcome`, which calls the wrapped one, 
 ```ts
 // src/app.mjs
 const greeter = create(require('greeter'), {
-  only: ['get', 'apply'],
+  only: ['apply'],
   location: true,
   stack: 3,
   callback(r) {
