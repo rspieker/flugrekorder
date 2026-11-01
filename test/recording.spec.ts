@@ -302,6 +302,45 @@ describe('test/recording', () => {
 			assert.deepStrictEqual(call.result, { $bigint: '14' });
 		});
 
+		test('values JSON cannot hold are written as tags, the same as the callback gets them', () => {
+			// arrange
+			const { stream, records } = makeStream();
+			const fromCallback: Array<Improbability> = [];
+			const target = () => ({
+				fn: (..._args: Array<unknown>) => undefined,
+			});
+			const values = [
+				undefined,
+				Number.NaN,
+				new Date(0),
+				new Map([['k', 1]]),
+			];
+			const streamed = create(target(), { stream, only: ['apply'] });
+			const called = create(target(), {
+				only: ['apply'],
+				callback: (r) => fromCallback.push(r),
+			});
+
+			// act
+			streamed.fn(...values);
+			called.fn(...values);
+
+			// assert
+			const [line] = records();
+			assert.deepStrictEqual(line.args[2], [
+				{ $undefined: true },
+				{ $number: 'NaN' },
+				{ $date: '1970-01-01T00:00:00.000Z' },
+				{ $map: [['k', 1]] },
+			]);
+			assert.deepStrictEqual(line.args[2], fromCallback[0].args[2]);
+			assert.strictEqual(
+				'result' in line,
+				false,
+				'an undefined result has no key',
+			);
+		});
+
 		test('timestamp is present and numeric in NDJSON output', () => {
 			// arrange
 			const { stream, records } = makeStream();

@@ -7,18 +7,44 @@ function resolve(id: string, proxy?: Proxiable): string {
 	return p !== undefined ? getPath(p) : id;
 }
 
+/** The member of `Serialized` that a tag such as `$date` identifies. */
+type Tag<K extends string> = Extract<
+	Serialized,
+	{ readonly [P in K]: unknown }
+>;
+
+/** Narrows a serialized value to the tag `key`; plain objects and arrays are never tags. */
+function tagged<K extends string>(v: Serialized, key: K): v is Tag<K> {
+	return typeof v === 'object' && v !== null && !Array.isArray(v) && key in v;
+}
+
 function display(v: Serialized, proxy?: Proxiable, limit = 80): string {
 	if (v === null || v === undefined) return String(v);
 	if (typeof v !== 'object') return String(v);
-	if (!Array.isArray(v) && '$proxy' in v)
-		return resolve(v.$proxy as string, proxy);
-	if (!Array.isArray(v) && '$unwrap' in v)
-		return `↓${resolve((v as { $unwrap: { $proxy: string } }).$unwrap.$proxy, proxy)}`;
-	if (!Array.isArray(v) && '$omitted' in v) return `‹${v.$omitted}›`;
-	if (!Array.isArray(v) && '$bigint' in v) return `${v.$bigint}n`;
-	const raw = Array.isArray(v)
-		? `[${v.map((i) => display(i, proxy)).join(', ')}]`
-		: JSON.stringify(v);
+	if (tagged(v, '$proxy')) return resolve(v.$proxy, proxy);
+	if (tagged(v, '$unwrap')) return `↓${resolve(v.$unwrap.$proxy, proxy)}`;
+	if (tagged(v, '$omitted')) return `‹${v.$omitted}›`;
+	if (tagged(v, '$bigint')) return `${v.$bigint}n`;
+	if (tagged(v, '$undefined')) return 'undefined';
+	if (tagged(v, '$number')) return v.$number;
+	if (tagged(v, '$symbol')) return `Symbol(${v.$symbol})`;
+	if (tagged(v, '$date')) return `Date(${v.$date})`;
+	if (tagged(v, '$regexp')) return `/${v.$regexp.source}/${v.$regexp.flags}`;
+	if (tagged(v, '$error')) return `${v.$error.name}(${v.$error.message})`;
+	if (tagged(v, '$url')) return `URL(${v.$url})`;
+	if (tagged(v, '$function')) return `ƒ ${v.$function || '(anonymous)'}`;
+	if (tagged(v, '$binary')) return `${v.$binary.type}(…)`;
+	if (tagged(v, '$weakmap')) return 'WeakMap';
+	if (tagged(v, '$weakset')) return 'WeakSet';
+
+	const raw = tagged(v, '$map')
+		? `Map(${v.$map.map(([k, x]) => `${display(k, proxy)} => ${display(x, proxy)}`).join(', ')})`
+		: tagged(v, '$set')
+			? `Set(${v.$set.map((x) => display(x, proxy)).join(', ')})`
+			: Array.isArray(v)
+				? `[${v.map((i) => display(i, proxy)).join(', ')}]`
+				: JSON.stringify(v);
+
 	return raw.length > limit ? `${raw.slice(0, limit)}…` : raw;
 }
 

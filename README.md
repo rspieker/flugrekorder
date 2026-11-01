@@ -216,16 +216,16 @@ Output:
 [ 'apple', 'banana', 'cherry', 'date', 'elderberry', 'fig' ]
 ```
 
-`comparisons.ndjson` — a header line, then 9 records; the first two shown:
+`comparisons.ndjson` — a header line, then 8 records; the first two shown:
 
 ```json
 {"$flugrekorder":{"format":"2.0"}}
-{"id":"#2","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["apple","banana"]],"result":-1,"timestamp":1748091234567}
-{"id":"#3","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["elderberry","apple"]],"result":1,"timestamp":1748091234568}
+{"id":"#2","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$unwrap":{"$proxy":"#1"}},{"$undefined":true},["apple","banana"]],"result":-1,"timestamp":1748091234567}
+{"id":"#3","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$unwrap":{"$proxy":"#1"}},{"$undefined":true},["elderberry","banana"]],"result":1,"timestamp":1748091234568}
 ...
 ```
 
-For 6 words, V8 made 9 comparisons — not 15 (the bubble sort worst case for 6 elements). The pattern is binary insertion sort: each word is binary-searched into position in the already-sorted prefix. `args[2]` holds the pair being compared; `result` is the comparator's return value. Swap the input for a larger or reverse-sorted list and the count — and the pattern — change.
+For 6 words, V8 (in Node.js 26) made 8 comparisons — not 15 (the bubble sort worst case for 6 elements); other engines and versions may differ. The pattern is binary insertion sort: each word is binary-searched into position in the already-sorted prefix. `args[1]` is the `this` the comparator was called with — `sort` passes none, so it is `{ "$undefined": true }`; `args[2]` holds the pair being compared; `result` is the comparator's return value. Swap the input for a larger or reverse-sorted list and the count — and the pattern — change.
 
 ---
 
@@ -827,6 +827,23 @@ type StreamHeader = { readonly $flugrekorder: { readonly format: string } };
 Serialized recorded values can be:
 - Primitives: `string`, `number`, `boolean`, `null`, `undefined`
 - Big integer: `{ $bigint: string }` — a `bigint` by its decimal digits, as JSON has no `bigint`; `BigInt(value.$bigint)` reads it back
+- Values JSON has no notation for, each as a tag of its own — the same in callbacks and in streams:
+
+  | Value | Recorded as |
+  |---|---|
+  | `NaN`, `Infinity`, `-Infinity`, `-0` | `{ $number: "NaN" }`, `{ $number: "Infinity" }`, `{ $number: "-Infinity" }`, `{ $number: "-0" }` |
+  | a symbol | `{ $symbol: "description" }` |
+  | `undefined` | `{ $undefined: true }` — except a record's `result`, where a missing key means `undefined` |
+  | `Date` | `{ $date: "2026-10-31T00:00:00.000Z" }`, or `"Invalid Date"` |
+  | `RegExp` | `{ $regexp: { source, flags } }` |
+  | `Error` | `{ $error: { name, message } }` |
+  | `URL` | `{ $url: "https://…" }` |
+  | a function | `{ $function: "name" }` |
+  | `Map`, `Set` | `{ $map: [[key, value], …] }`, `{ $set: [value, …] }` — entries serialized like any value |
+  | binary data | `{ $binary: { type: "Uint8Array", base64: "…" } }` — `type` is `Buffer` for a Node.js `Buffer`; `base64` is subject to `truncate` |
+  | `WeakMap`, `WeakSet` | `{ $weakmap: null }`, `{ $weakset: null }` — their contents cannot be read |
+
+  Class instances are recorded by their own enumerable fields, without the class name: reading it could run application code.
 - Proxy reference: `{ $proxy: string }` — a proxiable value known to the graph, referenced by ID
 - Raw target reference: `{ $unwrap: { $proxy: string } }` — the real target behind a proxy, recorded when a native boundary crossing required unwrapping (see [`apply:native`](#native-boundary-crossings-and-applynative))
 - Omitted value: `{ $omitted: string }` — with `values: false`, a value described without its contents: `null`, `Array<3>`, `Uint8Array<32>`, `number`, `object`, …
@@ -840,6 +857,19 @@ type Serialized =
   | { readonly $unwrap: { readonly $proxy: string } }
   | { readonly $omitted: string }
   | { readonly $bigint: string }
+  | { readonly $number: string }
+  | { readonly $symbol: string }
+  | { readonly $undefined: true }
+  | { readonly $date: string }
+  | { readonly $regexp: { readonly source: string; readonly flags: string } }
+  | { readonly $error: { readonly name: string; readonly message: string } }
+  | { readonly $url: string }
+  | { readonly $function: string }
+  | { readonly $weakmap: null }
+  | { readonly $weakset: null }
+  | { readonly $binary: { readonly type: string; readonly base64: string } }
+  | { readonly $map: Array<[Serialized, Serialized]> }
+  | { readonly $set: Array<Serialized> }
   | Array<Serialized>
   | { [key: string]: Serialized };
 ```
