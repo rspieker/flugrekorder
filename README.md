@@ -216,9 +216,10 @@ Output:
 [ 'apple', 'banana', 'cherry', 'date', 'elderberry', 'fig' ]
 ```
 
-`comparisons.ndjson` — 9 lines written, first two shown:
+`comparisons.ndjson` — a header line, then 9 records; the first two shown:
 
 ```json
+{"$flugrekorder":{"format":"1.0"}}
 {"id":"#2","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["apple","banana"]],"result":-1,"timestamp":1748091234567}
 {"id":"#3","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["elderberry","apple"]],"result":1,"timestamp":1748091234568}
 ...
@@ -266,11 +267,13 @@ Output:
 404
 ```
 
-`requests.ndjson` — 5 lines written:
+`requests.ndjson` — every request is a session of its own, so each starts with a header:
 
 ```json
+{"$flugrekorder":{"format":"1.0"}}
 {"id":"req1:2","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"url",{"$proxy":"req1:1"}],"result":"/hello","timestamp":1748091234100}
 {"id":"req1:3","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"method",{"$proxy":"req1:1"}],"result":"GET","timestamp":1748091234101}
+{"$flugrekorder":{"format":"1.0"}}
 {"id":"req2:2","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234150}
 {"id":"req2:3","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"method",{"$proxy":"req2:1"}],"result":"GET","timestamp":1748091234151}
 {"id":"req2:4","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234151}
@@ -355,7 +358,7 @@ const p = create(target, { callback: (r) => records.push(r) });
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `callback` | `(r: Rekording) => void` | — | Called synchronously with each record. Mutually exclusive with `stream`. |
-| `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON. Mutually exclusive with `callback`. |
+| `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON, after a header line that names their format: `{"$flugrekorder":{"format":"1.0"}}`. Every session writes its own header. Mutually exclusive with `callback`. |
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
 | `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed behave exactly the same — their results are proxied, so nested values stay visible — but produce no record: no ID, no serialization, no `location` or `stack`. `only: ['apply']` records every call into a nested API without recording the property reads that lead to it. |
@@ -811,6 +814,13 @@ Reads one line of an `Error.stack` string as a `StackFrame`, or returns `undefin
 
 ```ts
 type StackParser = (line: string) => StackFrame | undefined;
+```
+
+### `StreamHeader`
+The first line every session writes to a `stream`: the format its records follow, as `major.minor`. A minor change only adds what a reader can ignore; a major change alters what exists. A file without a header follows format `1.0`. Callbacks receive records only.
+
+```ts
+type StreamHeader = { readonly $flugrekorder: { readonly format: string } };
 ```
 
 ### `Serialized`
