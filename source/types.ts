@@ -61,6 +61,19 @@ export type Serialized =
 	| { readonly $unwrap: { readonly $proxy: string } }
 	| { readonly $omitted: string }
 	| { readonly $bigint: string }
+	| { readonly $number: string }
+	| { readonly $symbol: string }
+	| { readonly $undefined: true }
+	| { readonly $date: string }
+	| { readonly $regexp: { readonly source: string; readonly flags: string } }
+	| { readonly $error: { readonly name: string; readonly message: string } }
+	| { readonly $url: string }
+	| { readonly $function: string }
+	| { readonly $weakmap: null }
+	| { readonly $weakset: null }
+	| { readonly $binary: { readonly type: string; readonly base64: string } }
+	| { readonly $map: Array<[Serialized, Serialized]> }
+	| { readonly $set: Array<Serialized> }
 	| Array<Serialized>
 	| { [key: string]: Serialized };
 
