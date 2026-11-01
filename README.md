@@ -40,7 +40,7 @@ The recorder has no knowledge of what it wraps. If a dependency adds new methods
 npm install flugrekorder
 ```
 
-Upgrading from 1.x? See [MIGRATION.md](MIGRATION.md).
+Upgrading from 1.x? See [MIGRATION.md](MIGRATION.md). Reading records elsewhere? [FORMAT.md](FORMAT.md) describes exactly what they contain.
 
 ---
 
@@ -817,7 +817,7 @@ type StackParser = (line: string) => StackFrame | undefined;
 ```
 
 ### `StreamHeader`
-The first line every session writes to a `stream`: the format its records follow, as `major.minor`. A minor change only adds what a reader can ignore; a major change alters what exists. A file without a header follows format `1.0`. Callbacks receive records only.
+The first line every session writes to a `stream`: the format its records follow, as `major.minor`. A minor change only adds what a reader can ignore; a major change alters what exists. A file without a header follows format `1.0`. Callbacks receive records only. Every field, tag and rule of each format is in [FORMAT.md](FORMAT.md).
 
 ```ts
 type StreamHeader = { readonly $flugrekorder: { readonly format: string } };
