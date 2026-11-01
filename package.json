@@ -67,7 +67,7 @@
     "fast-check": "^4.8.0",
     "husky": "^9.1.7",
     "playwright": "^1.64.1",
-    "release-it": "^21.1.1",
+    "release-it": "^21.1.2",
     "template-literal-each": "^3.0.1",
     "tsdown": "^0.23.1",
     "typescript": "^6.0.3"
