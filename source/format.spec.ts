@@ -221,6 +221,23 @@ describe('source/format', () => {
 	});
 
 	describe('$unwrap', () => {
+		test('$bigint value renders as a bigint literal', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(
+				{ big: 42n } as Improbability,
+				(p) => {
+					p.big;
+				},
+			);
+			const r: Improbability = records.find(
+				({ trap }: Improbability) => trap === 'get',
+			);
+
+			// act
+			// assert
+			assert.strictEqual(format(r, proxy), 'big → 42n');
+		});
+
 		test('$omitted value renders as its description', () => {
 			// arrange
 			const { records, proxy } = createTestProxyRecorder(target);

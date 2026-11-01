@@ -250,6 +250,34 @@ describe('source/serialize', () => {
 		});
 	});
 
+	describe('values JSON cannot hold', () => {
+		test('a bigint is tagged with its decimal digits', () => {
+			// arrange
+			each<{ value: bigint; label: string }>`
+				value          | label
+				-------------- | ----------------------------
+				${42n}         | positive
+				${-7n}         | negative
+				${2n ** 64n}   | beyond Number.MAX_SAFE_INTEGER
+			`(({ value, label }) => {
+				// act
+				const serialized = serialize(value, new Graph(0));
+
+				// assert
+				assert.deepStrictEqual(
+					serialized,
+					{ $bigint: String(value) },
+					label,
+				);
+				assert.strictEqual(
+					BigInt((serialized as { $bigint: string }).$bigint),
+					value,
+					`${label} reads back as the same bigint`,
+				);
+			});
+		});
+	});
+
 	describe('values: false', () => {
 		const omit = cfg({ values: false });
 

@@ -87,7 +87,7 @@ type CreateOptions = StreamCreateOptions | CallbackCreateOptions;
 
 // The format records follow; a minor change only adds what a reader can
 // ignore, a major one changes what exists. See FORMAT.md for the rules.
-const header: StreamHeader = { $flugrekorder: { format: '1.0' } };
+const header: StreamHeader = { $flugrekorder: { format: '2.0' } };
 
 /**
  * Creates a recording proxy for `target` within `graph`.

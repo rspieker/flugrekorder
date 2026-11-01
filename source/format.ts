@@ -15,6 +15,7 @@ function display(v: Serialized, proxy?: Proxiable, limit = 80): string {
 	if (!Array.isArray(v) && '$unwrap' in v)
 		return `↓${resolve((v as { $unwrap: { $proxy: string } }).$unwrap.$proxy, proxy)}`;
 	if (!Array.isArray(v) && '$omitted' in v) return `‹${v.$omitted}›`;
+	if (!Array.isArray(v) && '$bigint' in v) return `${v.$bigint}n`;
 	const raw = Array.isArray(v)
 		? `[${v.map((i) => display(i, proxy)).join(', ')}]`
 		: JSON.stringify(v);
