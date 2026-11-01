@@ -1,5 +1,25 @@
 # Changelog
 
+## [2.0.0-beta.4](https://github.com/rspieker/flugrekorder/compare/v2.0.0-beta.3...v2.0.0-beta.4) (2026-11-01)
+
+### ⚠ BREAKING CHANGES
+
+* records hold tags such as { $date }, { $map } and { $undefined: true }
+  where they held {}, null or nothing.
+* Serialized records now use the $bigint tag.
+  The stream header is now format 2.0.
+* the first line a session writes to a stream is
+  {"$flugrekorder":{"format":"1.0"}}; readers that parse every line as a record skip it.
+
+### Features
+
+* every stream session starts with a format header ([32a25c6](https://github.com/rspieker/flugrekorder/commit/32a25c6e38e2293e8c3ea9af56c55b2f6eae84a9))
+* every value is recorded faithfully, with a tag where JSON has none ([9910b50](https://github.com/rspieker/flugrekorder/commit/9910b50c20e686af2c29bb1b49d5c33c2ee853c8))
+
+### Bug Fixes
+
+* a bigint in a record no longer crashes stream mode ([ab8c11c](https://github.com/rspieker/flugrekorder/commit/ab8c11cb94ea04dd82a14ea44429570c3174b3b1))
+
 ## [2.0.0-beta.3](https://github.com/rspieker/flugrekorder/compare/v2.0.0-beta.2...v2.0.0-beta.3) (2026-10-30)
 
 ### ⚠ BREAKING CHANGES
