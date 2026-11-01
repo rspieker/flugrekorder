@@ -288,21 +288,12 @@ describe('source/serialize', () => {
 				${Number.NaN}  | NaN
 				${Infinity}    | Infinity
 				${-Infinity}   | -Infinity
+				${-0}          | -0
 			`(({ value, text }) => {
 				// act
 				// assert
 				assert.deepStrictEqual(plain(value), { $number: text }, text);
 			});
-		});
-
-		test('-0 is tagged, as JSON writes it as 0', () => {
-			// arrange
-			// template-literal-table (bundled by template-literal-each) caches
-			// interpolated values in a Map, which does not tell -0 from 0: keep
-			// -0 out of the tables (rspieker/template-literal-table#11).
-			// act
-			// assert
-			assert.deepStrictEqual(plain(-0), { $number: '-0' });
 		});
 
 		test('other numbers stay numbers', () => {
