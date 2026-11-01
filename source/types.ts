@@ -55,12 +55,25 @@ export type Serialized =
 	| string
 	| number
 	| boolean
-	| bigint
 	| null
 	| undefined
 	| { readonly $proxy: string }
 	| { readonly $unwrap: { readonly $proxy: string } }
 	| { readonly $omitted: string }
+	| { readonly $bigint: string }
+	| { readonly $number: string }
+	| { readonly $symbol: string }
+	| { readonly $undefined: true }
+	| { readonly $date: string }
+	| { readonly $regexp: { readonly source: string; readonly flags: string } }
+	| { readonly $error: { readonly name: string; readonly message: string } }
+	| { readonly $url: string }
+	| { readonly $function: string }
+	| { readonly $weakmap: null }
+	| { readonly $weakset: null }
+	| { readonly $binary: { readonly type: string; readonly base64: string } }
+	| { readonly $map: Array<[Serialized, Serialized]> }
+	| { readonly $set: Array<Serialized> }
 	| Array<Serialized>
 	| { [key: string]: Serialized };
 
@@ -93,6 +106,11 @@ export type SourceLocation = {
 /** One frame of a call stack: the position of the call and the name of the function it is in (`''` for anonymous code). */
 export type StackFrame = SourceLocation & {
 	function: string;
+};
+
+/** The first line a session writes to a `stream`: which format its records follow, as `major.minor`. Without it, the format is `1.0`. */
+export type StreamHeader = {
+	readonly $flugrekorder: { readonly format: string };
 };
 
 /** A single recorded interaction — one Reflect trap firing on one proxy. */

@@ -221,6 +221,55 @@ describe('source/format', () => {
 	});
 
 	describe('$unwrap', () => {
+		test('$bigint value renders as a bigint literal', () => {
+			// arrange
+			const { records, proxy } = createTestProxyRecorder(
+				{ big: 42n } as Improbability,
+				(p) => {
+					p.big;
+				},
+			);
+			const r: Improbability = records.find(
+				({ trap }: Improbability) => trap === 'get',
+			);
+
+			// act
+			// assert
+			assert.strictEqual(format(r, proxy), 'big → 42n');
+		});
+
+		test('tagged values render the way JavaScript writes them', () => {
+			// arrange
+			const records: Array<Improbability> = [];
+			const fn: (...args: Array<unknown>) => void = create(() => {}, {
+				only: ['apply'],
+				callback: (r) => records.push(r),
+			});
+
+			// act
+			fn(
+				undefined,
+				Number.NaN,
+				Symbol('s'),
+				new Date(0),
+				/a+/g,
+				new TypeError('boom'),
+				new URL('https://x.test/'),
+				function named() {},
+				Buffer.from('hi'),
+				new Map([['k', 1]]),
+				new Set([1]),
+				new WeakMap(),
+			);
+
+			// assert
+			assert.strictEqual(
+				format(records[0], fn),
+				'(undefined, NaN, Symbol(s), Date(1970-01-01T00:00:00.000Z), /a+/g, TypeError(boom), ' +
+					'URL(https://x.test/), ƒ named, Buffer(…), Map(k => 1), Set(1), WeakMap)',
+			);
+		});
+
 		test('$omitted value renders as its description', () => {
 			// arrange
 			const { records, proxy } = createTestProxyRecorder(target);

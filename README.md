@@ -40,7 +40,7 @@ The recorder has no knowledge of what it wraps. If a dependency adds new methods
 npm install flugrekorder
 ```
 
-Upgrading from 1.x? See [MIGRATION.md](MIGRATION.md).
+Upgrading from 1.x? See [MIGRATION.md](MIGRATION.md). Reading records elsewhere? [FORMAT.md](FORMAT.md) describes exactly what they contain.
 
 ---
 
@@ -216,15 +216,16 @@ Output:
 [ 'apple', 'banana', 'cherry', 'date', 'elderberry', 'fig' ]
 ```
 
-`comparisons.ndjson` — 9 lines written, first two shown:
+`comparisons.ndjson` — a header line, then 8 records; the first two shown:
 
 ```json
-{"id":"#2","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["apple","banana"]],"result":-1,"timestamp":1748091234567}
-{"id":"#3","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$proxy":"#1"},null,["elderberry","apple"]],"result":1,"timestamp":1748091234568}
+{"$flugrekorder":{"format":"2.0"}}
+{"id":"#2","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$unwrap":{"$proxy":"#1"}},{"$undefined":true},["apple","banana"]],"result":-1,"timestamp":1748091234567}
+{"id":"#3","trap":"apply","origin":{"trap":"apply","source":"#1"},"args":[{"$unwrap":{"$proxy":"#1"}},{"$undefined":true},["elderberry","banana"]],"result":1,"timestamp":1748091234568}
 ...
 ```
 
-For 6 words, V8 made 9 comparisons — not 15 (the bubble sort worst case for 6 elements). The pattern is binary insertion sort: each word is binary-searched into position in the already-sorted prefix. `args[2]` holds the pair being compared; `result` is the comparator's return value. Swap the input for a larger or reverse-sorted list and the count — and the pattern — change.
+For 6 words, V8 (in Node.js 26) made 8 comparisons — not 15 (the bubble sort worst case for 6 elements); other engines and versions may differ. The pattern is binary insertion sort: each word is binary-searched into position in the already-sorted prefix. `args[1]` is the `this` the comparator was called with — `sort` passes none, so it is `{ "$undefined": true }`; `args[2]` holds the pair being compared; `result` is the comparator's return value. Swap the input for a larger or reverse-sorted list and the count — and the pattern — change.
 
 ---
 
@@ -266,11 +267,13 @@ Output:
 404
 ```
 
-`requests.ndjson` — 5 lines written:
+`requests.ndjson` — every request is a session of its own, so each starts with a header:
 
 ```json
+{"$flugrekorder":{"format":"2.0"}}
 {"id":"req1:2","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"url",{"$proxy":"req1:1"}],"result":"/hello","timestamp":1748091234100}
 {"id":"req1:3","trap":"get","origin":{"trap":"get","parent":"req1:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req1:1"}},"method",{"$proxy":"req1:1"}],"result":"GET","timestamp":1748091234101}
+{"$flugrekorder":{"format":"2.0"}}
 {"id":"req2:2","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234150}
 {"id":"req2:3","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"method"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"method",{"$proxy":"req2:1"}],"result":"GET","timestamp":1748091234151}
 {"id":"req2:4","trap":"get","origin":{"trap":"get","parent":"req2:1","key":"url"},"args":[{"$unwrap":{"$proxy":"req2:1"}},"url",{"$proxy":"req2:1"}],"result":"/missing","timestamp":1748091234151}
@@ -355,7 +358,7 @@ const p = create(target, { callback: (r) => records.push(r) });
 | Field | Type | Default | Description |
 |---|---|---|---|
 | `callback` | `(r: Rekording) => void` | — | Called synchronously with each record. Mutually exclusive with `stream`. |
-| `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON. Mutually exclusive with `callback`. |
+| `stream` | `Writable` | — | Node.js Writable; records are written as newline-delimited JSON, after a header line that names their format: `{"$flugrekorder":{"format":"2.0"}}`. Every session writes its own header. Mutually exclusive with `callback`. |
 | `id` | `number \| (() => string)` | `0` | Starting integer for the auto-incrementing ID sequence, or a custom generator. IDs take the form `#1`, `#2`, … unless overridden. |
 | `recursive` | `boolean` | `true` | When `false`, only the root target is proxied. Values returned from traps are passed through as-is. |
 | `only` | `Array<string>` | all traps | Allowlist of Reflect trap names to record. Traps not listed behave exactly the same — their results are proxied, so nested values stay visible — but produce no record: no ID, no serialization, no `location` or `stack`. `only: ['apply']` records every call into a nested API without recording the property reads that lead to it. |
@@ -813,9 +816,34 @@ Reads one line of an `Error.stack` string as a `StackFrame`, or returns `undefin
 type StackParser = (line: string) => StackFrame | undefined;
 ```
 
+### `StreamHeader`
+The first line every session writes to a `stream`: the format its records follow, as `major.minor`. A minor change only adds what a reader can ignore; a major change alters what exists. A file without a header follows format `1.0`. Callbacks receive records only. Every field, tag and rule of each format is in [FORMAT.md](FORMAT.md).
+
+```ts
+type StreamHeader = { readonly $flugrekorder: { readonly format: string } };
+```
+
 ### `Serialized`
 Serialized recorded values can be:
-- Primitives: `string`, `number`, `boolean`, `bigint`, `null`, `undefined`
+- Primitives: `string`, `number`, `boolean`, `null`, `undefined`
+- Big integer: `{ $bigint: string }` — a `bigint` by its decimal digits, as JSON has no `bigint`; `BigInt(value.$bigint)` reads it back
+- Values JSON has no notation for, each as a tag of its own — the same in callbacks and in streams:
+
+  | Value | Recorded as |
+  |---|---|
+  | `NaN`, `Infinity`, `-Infinity`, `-0` | `{ $number: "NaN" }`, `{ $number: "Infinity" }`, `{ $number: "-Infinity" }`, `{ $number: "-0" }` |
+  | a symbol | `{ $symbol: "description" }` |
+  | `undefined` | `{ $undefined: true }` — except a record's `result`, where a missing key means `undefined` |
+  | `Date` | `{ $date: "2026-10-31T00:00:00.000Z" }`, or `"Invalid Date"` |
+  | `RegExp` | `{ $regexp: { source, flags } }` |
+  | `Error` | `{ $error: { name, message } }` |
+  | `URL` | `{ $url: "https://…" }` |
+  | a function | `{ $function: "name" }` |
+  | `Map`, `Set` | `{ $map: [[key, value], …] }`, `{ $set: [value, …] }` — entries serialized like any value |
+  | binary data | `{ $binary: { type: "Uint8Array", base64: "…" } }` — `type` is `Buffer` for a Node.js `Buffer`; `base64` is subject to `truncate` |
+  | `WeakMap`, `WeakSet` | `{ $weakmap: null }`, `{ $weakset: null }` — their contents cannot be read |
+
+  Class instances are recorded by their own enumerable fields, without the class name: reading it could run application code.
 - Proxy reference: `{ $proxy: string }` — a proxiable value known to the graph, referenced by ID
 - Raw target reference: `{ $unwrap: { $proxy: string } }` — the real target behind a proxy, recorded when a native boundary crossing required unwrapping (see [`apply:native`](#native-boundary-crossings-and-applynative))
 - Omitted value: `{ $omitted: string }` — with `values: false`, a value described without its contents: `null`, `Array<3>`, `Uint8Array<32>`, `number`, `object`, …
@@ -824,10 +852,24 @@ Serialized recorded values can be:
 
 ```ts
 type Serialized =
-  | string | number | boolean | bigint | null | undefined
+  | string | number | boolean | null | undefined
   | { readonly $proxy: string }
   | { readonly $unwrap: { readonly $proxy: string } }
   | { readonly $omitted: string }
+  | { readonly $bigint: string }
+  | { readonly $number: string }
+  | { readonly $symbol: string }
+  | { readonly $undefined: true }
+  | { readonly $date: string }
+  | { readonly $regexp: { readonly source: string; readonly flags: string } }
+  | { readonly $error: { readonly name: string; readonly message: string } }
+  | { readonly $url: string }
+  | { readonly $function: string }
+  | { readonly $weakmap: null }
+  | { readonly $weakset: null }
+  | { readonly $binary: { readonly type: string; readonly base64: string } }
+  | { readonly $map: Array<[Serialized, Serialized]> }
+  | { readonly $set: Array<Serialized> }
   | Array<Serialized>
   | { [key: string]: Serialized };
 ```

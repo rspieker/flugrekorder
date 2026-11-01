@@ -9,7 +9,8 @@ Most code that uses flugrekorder 1.x runs on 2.0 unchanged. What changed is most
 | keeps record IDs to look proxies up later | expect `undefined` once the object is gone — [Sessions](#a-session-no-longer-keeps-objects-alive) |
 | reads `getAncestors()` steps | each step gained an `id`, and `proxy` can be `undefined` — [Sessions](#a-session-no-longer-keeps-objects-alive) |
 | reads `origin` or `format()` output of `has`, `deleteProperty`, `getPrototypeOf` or `setPrototypeOf` records | see [Records](#records) |
-| narrows `Serialized` exhaustively | add `{ $omitted }` — [Types](#types) |
+| reads `stream` output line by line | skip the header line each session starts with — [Requirements](#requirements-and-packaging) |
+| reads values from records, or narrows `Serialized` exhaustively | handle the tags: `{ $bigint }`, `{ $date }`, `{ $undefined }`, … — [Values in records](#values-in-records) |
 | passes both `stream` and `callback` | pick one — [Types](#types) |
 | records binary data, frozen objects, or Node.js and browser built-ins | expect more, and different, records — [Values that used to fail](#values-that-used-to-fail) |
 
@@ -23,6 +24,7 @@ Most code that uses flugrekorder 1.x runs on 2.0 unchanged. What changed is most
   - `require('flugrekorder')` keeps working: Node.js 22.12 and later can `require()` an ES module.
   - Paths into `dist/` were never part of the package's `exports`, so no import can have depended on them.
 - **The browser bundle** is still `dist/flugrekorder.global.js`, exposing a global `Flugrekorder`.
+- **`stream` output starts with a header.** Every session first writes `{"$flugrekorder":{"format":"2.0"}}`, the format its records follow; a file without a header — anything written by 1.x — is format `1.0`. A reader that parses every line as a record skips lines with a `$flugrekorder` key. Callbacks receive records only.
 
 ---
 
@@ -80,9 +82,17 @@ type Step = { id: string; proxy: Proxiable | undefined; origin: Origin };
 
 ---
 
+## Values in records
+
+1.x recorded values as JavaScript had them and left the rest to `JSON.stringify` — and its own serializer only copied an object's own enumerable keys. So a `Date`, `Map`, `Set`, `RegExp`, `Error`, `URL` or function was recorded as `{}`, a typed array or `Buffer` as one key per byte, `NaN` and `Infinity` as `null` in a stream, and a `bigint` made `stream` mode throw into the application.
+
+2.0 records every value faithfully, the same in callbacks and streams: values JSON has no notation for become tags — `{ $number: "NaN" }`, `{ $bigint: "42" }`, `{ $undefined: true }`, `{ $date: "…" }`, `{ $map: […] }`, `{ $binary: { type, base64 } }`, … The full list is under [`Serialized`](README.md#serialized). Code that reads values from records needs to handle these tags; `format()` shows them the way JavaScript writes them (`undefined`, `NaN`, `Date(…)`, `Map(k => 1)`).
+
+An `undefined` that used to be `null` in a stream — `this` in a plain function call, an element of an array — is `{ $undefined: true }` now. A record's `result` is the exception: when it is `undefined`, the key is left out.
+
 ## Types
 
-- **`Serialized`** has one more member, `{ readonly $omitted: string }`, which only appears with `values: false`. Code that narrows `Serialized` exhaustively needs a branch for it.
+- **`Serialized`** no longer contains `bigint`, and has a member per tag (see [Values in records](#values-in-records)), plus `{ readonly $omitted: string }`, which only appears with `values: false`. Code that narrows `Serialized` exhaustively needs a branch for each.
 - **`CreateOptions`** — `stream` and `callback` exclude each other. 1.x accepted both and silently ignored `callback`; 2.0 reports it as a type error. A `stream` that is `undefined` now means "use the callback"; 1.x threw on the first trap.
 - **`PropertyTrap`** includes `has` and `deleteProperty`.
 - **`getAncestors`** returns `Array<{ id: string; proxy: Proxiable | undefined; origin: Origin }>`.

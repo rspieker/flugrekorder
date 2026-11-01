@@ -42,6 +42,87 @@ function kind(v: unknown): string {
 	return typeof v;
 }
 
+/** Truncates a string to `serial.truncate` characters, marking the cut with `…`. */
+function text(v: string, serial: SerialConfig): string {
+	return v.length > serial.truncate ? `${v.slice(0, serial.truncate)}…` : v;
+}
+
+/** A number as JSON writes it, or tagged when JSON cannot: `NaN`, `±Infinity`, `-0`. */
+function number(v: number): Serialized {
+	if (Object.is(v, -0)) return { $number: '-0' };
+
+	return Number.isFinite(v) ? v : { $number: String(v) };
+}
+
+/** The bytes of binary data as base64; empty for a detached buffer. */
+function base64(v: ArrayBufferLike | ArrayBufferView): string {
+	const buffer = ArrayBuffer.isView(v) ? v.buffer : v;
+	if ((buffer as { detached?: boolean }).detached) return '';
+
+	const bytes = ArrayBuffer.isView(v)
+		? new Uint8Array(v.buffer, v.byteOffset, v.byteLength)
+		: new Uint8Array(v);
+
+	if (typeof Buffer === 'function')
+		return Buffer.from(
+			bytes.buffer,
+			bytes.byteOffset,
+			bytes.byteLength,
+		).toString('base64');
+
+	let binary = '';
+	for (const byte of bytes) binary += String.fromCharCode(byte);
+
+	return btoa(binary);
+}
+
+/**
+ * Built-ins that hold a single value, tagged by type without walking them.
+ * Values are read through the built-in's own prototype where an instance
+ * could shadow them, so no application code runs.
+ */
+function builtin(v: object, serial: SerialConfig): Serialized | undefined {
+	if (typeof v === 'function') {
+		const name = Object.getOwnPropertyDescriptor(v, 'name')?.value;
+
+		return { $function: typeof name === 'string' ? name : '' };
+	}
+	if (v instanceof Date) {
+		const time = Date.prototype.getTime.call(v);
+
+		return {
+			$date: Number.isNaN(time)
+				? 'Invalid Date'
+				: Date.prototype.toISOString.call(v),
+		};
+	}
+	if (v instanceof RegExp)
+		return { $regexp: { source: v.source, flags: v.flags } };
+	if (v instanceof Error)
+		return { $error: { name: String(v.name), message: String(v.message) } };
+	if (typeof URL === 'function' && v instanceof URL) return { $url: v.href };
+	if (v instanceof WeakMap) return { $weakmap: null };
+	if (v instanceof WeakSet) return { $weakset: null };
+	if (isBinary(v)) {
+		const type =
+			typeof Buffer === 'function' && Buffer.isBuffer(v)
+				? 'Buffer'
+				: Object.prototype.toString.call(v).slice(8, -1);
+
+		return {
+			$binary: {
+				type,
+				base64: text(
+					base64(v as ArrayBufferLike | ArrayBufferView),
+					serial,
+				),
+			},
+		};
+	}
+
+	return undefined;
+}
+
 /** Tags a proxy by its ID, and a target known to the graph by the ID of its proxy. */
 function reference(v: unknown, graph: Graph): Serialized | undefined {
 	if (!isProxiable(v)) return undefined;
@@ -83,7 +164,7 @@ function proxiable(
 	// Check for a known proxy BEFORE Array.isArray: iterating a proxied
 	// array via its proxy triggers get traps which call serialize again,
 	// causing infinite recursion. A proxy is always tagged by ID.
-	const tag = reference(v, graph);
+	const tag = reference(v, graph) ?? builtin(v as object, serial);
 	if (tag !== undefined) return tag;
 	if (depth >= serial.depth) return '[…]';
 
@@ -91,20 +172,38 @@ function proxiable(
 	// circular-reference guard on the path from the root.
 	if (seen.has(v)) return { $proxy: '?' };
 
-	// Plain (unproxied) arrays are safe to iterate directly.
-	if (Array.isArray(v)) {
-		seen.add(v);
+	const item = (value: unknown) =>
+		serialize(value, graph, seen, serial, depth + 1);
 
-		const items = (v as Array<unknown>).map((item) =>
-			serialize(item, graph, seen, serial, depth + 1),
-		);
+	seen.add(v);
+
+	// Plain (unproxied) arrays are safe to iterate directly; a hole is read
+	// as `undefined`, which JSON would otherwise write as `null`.
+	if (Array.isArray(v)) {
+		const items = Array.from(v as Array<unknown>, item);
 
 		seen.delete(v);
 
 		return items;
 	}
+	if (v instanceof Map) {
+		const entries: Array<[Serialized, Serialized]> = [];
+		Map.prototype.forEach.call(v, (value, key) =>
+			entries.push([item(key), item(value)]),
+		);
 
-	seen.add(v);
+		seen.delete(v);
+
+		return { $map: entries };
+	}
+	if (v instanceof Set) {
+		const values: Array<Serialized> = [];
+		Set.prototype.forEach.call(v, (value) => values.push(item(value)));
+
+		seen.delete(v);
+
+		return { $set: values };
+	}
 
 	const entries: Array<[string, Serialized]> = [];
 
@@ -118,7 +217,7 @@ function proxiable(
 			}
 		}
 
-		entries.push([k, serialize(val, graph, seen, serial, depth + 1)]);
+		entries.push([k, item(val)]);
 	}
 
 	seen.delete(v);
@@ -136,14 +235,16 @@ export function serialize(
 ): Serialized {
 	// Without values, only references remain: everything else is described.
 	if (!serial.values) return reference(v, graph) ?? { $omitted: kind(v) };
-	if (v === null || v === undefined) return v;
+	if (v === null) return null;
+	// JSON drops `undefined`, or writes `null` inside an array.
+	if (v === undefined) return { $undefined: true };
 	if (isProxiable(v)) return proxiable(v, graph, seen, serial, depth);
+	// JSON has no bigint: written as is, it makes JSON.stringify throw.
+	if (typeof v === 'bigint') return { $bigint: String(v) };
+	if (typeof v === 'symbol') return { $symbol: v.description ?? '' };
+	if (typeof v === 'number') return number(v);
 
-	return typeof v === 'string'
-		? (v as string).length > serial.truncate
-			? `${(v as string).slice(0, serial.truncate)}…`
-			: (v as string)
-		: (v as Serialized);
+	return typeof v === 'string' ? text(v, serial) : (v as Serialized);
 }
 
 /**
@@ -186,6 +287,9 @@ export function result(
 	graph: Graph,
 	serial: SerialConfig,
 ): Serialized {
+	// A missing `result` means `undefined`: void functions are everywhere.
+	if (output === undefined && serial.values) return undefined;
+
 	return serialize(
 		output,
 		graph,

@@ -18,6 +18,7 @@ import type {
 	Proxiable,
 	Redactor,
 	Rekording,
+	StreamHeader,
 } from './types.ts';
 import { isCallTrap, isPropertyTrap, isProxiable } from './types.ts';
 
@@ -42,6 +43,7 @@ export type {
 	Serialized,
 	SourceLocation,
 	StackFrame,
+	StreamHeader,
 } from './types.ts';
 export { isProxiable } from './types.ts';
 
@@ -82,6 +84,10 @@ type CallbackCreateOptions = CommonCreateOptions & {
 	stream?: never;
 };
 type CreateOptions = StreamCreateOptions | CallbackCreateOptions;
+
+// The format records follow; a minor change only adds what a reader can
+// ignore, a major one changes what exists. See FORMAT.md for the rules.
+const header: StreamHeader = { $flugrekorder: { format: '2.0' } };
 
 /**
  * Creates a recording proxy for `target` within `graph`.
@@ -318,6 +324,10 @@ export function create<T extends Proxiable>(
 
 	const graph = new Graph(options.id ?? 0);
 	const specs = makeSpecs(options.bind);
+
+	// A stream may outlive the process and be read elsewhere: every session
+	// starts with the format its records follow.
+	options.stream?.write(`${JSON.stringify(header)}\n`);
 
 	return makeProxy(
 		target,
