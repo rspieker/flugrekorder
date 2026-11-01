@@ -95,6 +95,11 @@ export type StackFrame = SourceLocation & {
 	function: string;
 };
 
+/** The first line a session writes to a `stream`: which format its records follow, as `major.minor`. Without it, the format is `1.0`. */
+export type StreamHeader = {
+	readonly $flugrekorder: { readonly format: string };
+};
+
 /** A single recorded interaction — one Reflect trap firing on one proxy. */
 export type Rekording = {
 	id: string;

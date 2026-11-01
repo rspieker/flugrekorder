@@ -20,7 +20,13 @@ function makeStream() {
 			cb();
 		},
 	});
-	return { stream, lines };
+	// What a reader does: parse every line, and skip the session headers.
+	const records = () =>
+		lines
+			.map((line) => JSON.parse(line))
+			.filter((line) => !('$flugrekorder' in line));
+
+	return { stream, lines, records };
 }
 
 describe('test/recording', () => {
@@ -194,7 +200,7 @@ describe('test/recording', () => {
 	describe('stream sink', () => {
 		test('writes valid NDJSON', () => {
 			// arrange
-			const { stream, lines } = makeStream();
+			const { stream, lines, records } = makeStream();
 			const p = create({ x: 1, y: 2 }, { stream });
 
 			// act
@@ -202,16 +208,17 @@ describe('test/recording', () => {
 			p.y;
 
 			// assert
-			assert.ok(
-				lines.length >= 2,
-				`at least two lines written (got ${lines.length})`,
-			);
 			for (const line of lines) {
 				assert.doesNotThrow(
 					() => JSON.parse(line),
 					'line is valid JSON',
 				);
-				const rec = JSON.parse(line);
+			}
+			assert.ok(
+				records().length >= 2,
+				`at least two records written (got ${records().length})`,
+			);
+			for (const rec of records()) {
 				assert.strictEqual(typeof rec.id, 'string', 'id is a string');
 				assert.strictEqual(
 					typeof rec.trap,
@@ -226,15 +233,14 @@ describe('test/recording', () => {
 
 		test('every record round-trips through JSON.stringify', () => {
 			// arrange
-			const { stream, lines } = makeStream();
+			const { stream, records } = makeStream();
 			const p = create({ a: { b: () => ({ v: 1 }) } }, { stream });
 
 			// act
 			p.a.b();
 
 			// assert
-			for (const line of lines) {
-				const rec = JSON.parse(line);
+			for (const rec of records()) {
 				assert.doesNotThrow(
 					() => JSON.stringify(rec),
 					`record ${rec.id} is fully serialisable`,
@@ -244,7 +250,7 @@ describe('test/recording', () => {
 
 		test('origins contain only string IDs (no live references)', () => {
 			// arrange
-			const { stream, lines } = makeStream();
+			const { stream, records } = makeStream();
 			const p = create({ a: { b: 1 }, fn: () => 'x' }, { stream });
 
 			// act
@@ -252,8 +258,7 @@ describe('test/recording', () => {
 			p.fn();
 
 			// assert
-			for (const line of lines) {
-				const rec = JSON.parse(line);
+			for (const rec of records()) {
 				if (rec.origin && 'parent' in rec.origin) {
 					assert.strictEqual(
 						typeof rec.origin.parent,
@@ -278,6 +283,27 @@ describe('test/recording', () => {
 
 		test('timestamp is present and numeric in NDJSON output', () => {
 			// arrange
+			const { stream, records } = makeStream();
+			const p = create({ x: 1 }, { stream });
+
+			// act
+			p.x;
+
+			// assert
+			const [rec] = records();
+			assert.strictEqual(
+				typeof rec.timestamp,
+				'number',
+				'timestamp is a number in NDJSON',
+			);
+		});
+	});
+
+	describe('stream header', () => {
+		const header = { $flugrekorder: { format: '1.0' } };
+
+		test('a session starts with the format its records follow', () => {
+			// arrange
 			const { stream, lines } = makeStream();
 			const p = create({ x: 1 }, { stream });
 
@@ -285,12 +311,63 @@ describe('test/recording', () => {
 			p.x;
 
 			// assert
-			const rec = JSON.parse(lines[0]);
+			assert.deepStrictEqual(JSON.parse(lines[0]), header);
 			assert.strictEqual(
-				typeof rec.timestamp,
-				'number',
-				'timestamp is a number in NDJSON',
+				lines.slice(1).every((line) => 'trap' in JSON.parse(line)),
+				true,
+				'every line after the header is a record',
 			);
+		});
+
+		test('the header is written when the session starts, before anything is recorded', () => {
+			// arrange
+			const { stream, lines } = makeStream();
+
+			// act
+			create({ x: 1 }, { stream });
+
+			// assert
+			assert.deepStrictEqual(
+				lines.map((line) => JSON.parse(line)),
+				[header],
+			);
+		});
+
+		test('every session writes its own header, so a shared stream shows where each starts', () => {
+			// arrange
+			const { stream, lines } = makeStream();
+			const first = create(
+				{ x: 1 },
+				{ stream, id: () => `a${lines.length}` },
+			);
+			first.x;
+			const second = create(
+				{ y: 2 },
+				{ stream, id: () => `b${lines.length}` },
+			);
+
+			// act
+			second.y;
+
+			// assert
+			assert.deepStrictEqual(
+				lines.map((line) => {
+					const parsed = JSON.parse(line);
+					return '$flugrekorder' in parsed ? 'header' : parsed.id[0];
+				}),
+				['header', 'a', 'header', 'b'],
+			);
+		});
+
+		test('a callback receives records only', () => {
+			// arrange
+			const received: Array<unknown> = [];
+
+			// act
+			create({ x: 1 }, { callback: (r) => received.push(r) });
+
+			// assert
+			assert.deepStrictEqual(received, []);
 		});
 	});
 });
