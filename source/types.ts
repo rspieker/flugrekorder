@@ -55,12 +55,12 @@ export type Serialized =
 	| string
 	| number
 	| boolean
-	| bigint
 	| null
 	| undefined
 	| { readonly $proxy: string }
 	| { readonly $unwrap: { readonly $proxy: string } }
 	| { readonly $omitted: string }
+	| { readonly $bigint: string }
 	| Array<Serialized>
 	| { [key: string]: Serialized };
 

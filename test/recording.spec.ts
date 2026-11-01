@@ -281,6 +281,27 @@ describe('test/recording', () => {
 			}
 		});
 
+		test('a bigint is written as a $bigint tag instead of making JSON.stringify throw', () => {
+			// arrange
+			const { stream, records } = makeStream();
+			const p = create(
+				{ big: 42n, fn: (n: bigint) => n * 2n },
+				{ stream, only: ['get', 'apply'] },
+			);
+
+			// act
+			const big = p.big;
+			const doubled = p.fn(7n);
+
+			// assert
+			assert.strictEqual(big, 42n, 'the application gets the bigint');
+			assert.strictEqual(doubled, 14n);
+			const [read, , call] = records();
+			assert.deepStrictEqual(read.result, { $bigint: '42' });
+			assert.deepStrictEqual(call.args[2], [{ $bigint: '7' }]);
+			assert.deepStrictEqual(call.result, { $bigint: '14' });
+		});
+
 		test('timestamp is present and numeric in NDJSON output', () => {
 			// arrange
 			const { stream, records } = makeStream();
@@ -300,7 +321,7 @@ describe('test/recording', () => {
 	});
 
 	describe('stream header', () => {
-		const header = { $flugrekorder: { format: '1.0' } };
+		const header = { $flugrekorder: { format: '2.0' } };
 
 		test('a session starts with the format its records follow', () => {
 			// arrange

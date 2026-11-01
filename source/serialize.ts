@@ -138,6 +138,8 @@ export function serialize(
 	if (!serial.values) return reference(v, graph) ?? { $omitted: kind(v) };
 	if (v === null || v === undefined) return v;
 	if (isProxiable(v)) return proxiable(v, graph, seen, serial, depth);
+	// JSON has no bigint: written as is, it makes JSON.stringify throw.
+	if (typeof v === 'bigint') return { $bigint: String(v) };
 
 	return typeof v === 'string'
 		? (v as string).length > serial.truncate
